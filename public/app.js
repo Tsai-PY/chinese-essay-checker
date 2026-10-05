@@ -367,13 +367,15 @@ table.report-table {
   border-collapse: collapse;
   width: 100%;
   margin: 14pt 0;
-  font-size: 11pt;
-  line-height: 150%;
+  font-size: 10.5pt;
+  line-height: 145%;
+  table-layout: fixed;
 }
 table.report-table th, table.report-table td {
   border: 1pt solid #bbb;
-  padding: 6pt 8pt;
-  text-align: left;
+  padding: 5pt 6pt;
+  vertical-align: top;
+  word-break: break-word;
 }
 table.report-table th {
   background-color: #f6f3ee;
@@ -455,11 +457,11 @@ $('#btn-dl-word-report').addEventListener('click', () => {
       const statusStr = it.status === 'accepted' ? '<span class="status-accepted">✔ 已採用</span>' : it.status === 'ignored' ? '已忽略' : '未決定';
       tableRows += `<tr>
         <td style="text-align:center;">${idx + 1}</td>
-        <td class="${badgeClass}">${escapeHtml(typeLabel)}</td>
-        <td style="color:#c8323c;text-decoration:line-through;">${escapeHtml(it.original)}</td>
-        <td style="color:#2e8b57;font-weight:bold;">${escapeHtml(it.suggestion || '(刪除)')}</td>
-        <td>${statusStr}</td>
-        <td>${escapeHtml(it.explanation)}</td>
+        <td class="${badgeClass}" style="text-align:center;white-space:nowrap;">${escapeHtml(typeLabel)}</td>
+        <td style="color:#c8323c;text-decoration:line-through;word-break:break-all;">${escapeHtml(it.original)}</td>
+        <td style="color:#2e8b57;font-weight:bold;word-break:break-all;">${escapeHtml(it.suggestion || '(刪除)')}</td>
+        <td style="text-align:center;white-space:nowrap;">${statusStr}</td>
+        <td style="line-height:150%;">${escapeHtml(it.explanation)}</td>
       </tr>`;
     });
   }
@@ -483,12 +485,12 @@ $('#btn-dl-word-report').addEventListener('click', () => {
     <table class="report-table">
       <thead>
         <tr>
-          <th style="width:40pt;text-align:center;">編號</th>
-          <th style="width:70pt;">類別</th>
-          <th style="width:90pt;">原文片段</th>
-          <th style="width:90pt;">建議修正</th>
-          <th style="width:60pt;">狀態</th>
-          <th>說明</th>
+          <th style="width:7%;text-align:center;">編號</th>
+          <th style="width:13%;text-align:center;white-space:nowrap;">類別</th>
+          <th style="width:14%;">原文片段</th>
+          <th style="width:14%;">建議修正</th>
+          <th style="width:10%;text-align:center;white-space:nowrap;">狀態</th>
+          <th style="width:42%;">說明</th>
         </tr>
       </thead>
       <tbody>
