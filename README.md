@@ -16,7 +16,14 @@
 - **拖曳與貼上**：電腦端可直接將作文圖片拖曳至輸入框，或使用 `Ctrl+V` 貼上螢幕截圖。
 - **原貌保留**：AI 辨識時忠實保留學生的手寫錯別字與原有標點，不擅自修改，留給後續批改系統診斷。
 
-## 使用方式
+## 線上一鍵發佈
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FTsai-PY%2Fchinese-essay-checker&env=GEMINI_API_KEY&envDescription=Google%20Gemini%20API%20Key)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Tsai-PY/chinese-essay-checker)
+
+> 點擊上方按鈕後，登入並填入您的 `GEMINI_API_KEY`，約 1 分鐘即可自動獲得永久免費的專屬線上網站網址！
+
+## 本機使用方式
 
 1. 到 <https://aistudio.google.com/apikey> 申請 Gemini API 金鑰。
 2. 複製 `.env.example` 為 `.env`，填入 `GEMINI_API_KEY=你的金鑰`。
