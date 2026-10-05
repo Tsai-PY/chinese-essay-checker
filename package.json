@@ -1,0 +1,17 @@
+{
+  "name": "chinese-essay-checker",
+  "version": "1.0.0",
+  "description": "國文作文批改小幫手：標示標點符號、錯別字與用詞錯誤，並提供修正建議",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/locate.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@google/genai": "^2.3.0"
+  }
+}

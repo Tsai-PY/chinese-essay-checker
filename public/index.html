@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>國文作文批改小幫手</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📝</text></svg>" />
+  <link rel="stylesheet" href="/style.css" />
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <header class="site-header">
+    <h1>📝 國文作文批改小幫手</h1>
+    <p>貼上作文，自動標示<span class="tag punctuation">標點符號</span><span class="tag typo">錯別字</span><span class="tag usage">用詞錯誤</span>並提供修正建議</p>
+  </header>
+
+  <main>
+    <!-- 輸入區 -->
+    <section id="input-view" class="card">
+      <div class="section-head">
+        <label for="essay" class="section-title">作文內容</label>
+        <div class="ocr-controls">
+          <label for="image-input" class="btn small primary-outline ocr-btn" title="用手機拍照或選取作文照片">
+            📷 拍照／上傳圖片辨識
+          </label>
+          <input type="file" id="image-input" accept="image/*" capture="environment" hidden multiple />
+        </div>
+      </div>
+
+      <div id="ocr-status" class="ocr-status" hidden>
+        <span class="mini-spinner"></span>
+        <span id="ocr-status-text">AI 正在辨識作文影像中的文字，請稍候……</span>
+      </div>
+
+      <textarea id="essay" placeholder="請在這裡貼上或輸入作文，或點擊上方「📷 拍照／上傳圖片辨識」（也可直接將照片拖曳至此或按 Ctrl+V 貼上截圖）……" spellcheck="false"></textarea>
+      
+      <div class="toolbar">
+        <span id="char-count" class="muted">0 字</span>
+        <div class="spacer"></div>
+        <button type="button" id="btn-sample" class="btn ghost">載入範例</button>
+        <button type="button" id="btn-clear" class="btn ghost">清除</button>
+        <button type="button" id="btn-check" class="btn primary">開始批改</button>
+      </div>
+      <p id="error" class="error" role="alert" hidden></p>
+    </section>
+
+    <!-- 結果區 -->
+    <section id="result-view" hidden>
+      <div class="toolbar result-toolbar">
+        <button type="button" id="btn-back" class="btn ghost">← 返回修改</button>
+        <div class="spacer"></div>
+        <button type="button" id="btn-accept-all" class="btn">全部採用</button>
+        <button type="button" id="btn-copy" class="btn primary">複製修正後文章</button>
+      </div>
+
+      <div class="result-grid">
+        <div class="card">
+          <div class="section-head">
+            <div style="display:flex;align-items:center;gap:.6rem;">
+              <h2 class="section-title">批改結果</h2>
+              <span id="model-badge" class="badge" style="background:#ede8df;color:#666;font-size:0.75rem;" hidden></span>
+            </div>
+            <div class="filters" id="filters">
+              <label class="filter punctuation"><input type="checkbox" value="punctuation" checked /> 標點符號 <b data-count="punctuation">0</b></label>
+              <label class="filter typo"><input type="checkbox" value="typo" checked /> 錯別字 <b data-count="typo">0</b></label>
+              <label class="filter usage"><input type="checkbox" value="usage" checked /> 用詞錯誤 <b data-count="usage">0</b></label>
+            </div>
+          </div>
+          <div id="annotated" class="annotated" aria-live="polite"></div>
+          <p class="muted hint">點選標示處可查看建議；綠色為已採用的修正。</p>
+        </div>
+
+        <aside class="card issues-card">
+          <h2 class="section-title">修正建議 <span id="issue-total" class="muted"></span></h2>
+          <ol id="issue-list" class="issue-list"></ol>
+          <div id="unlocated-wrap" hidden>
+            <h3 class="sub-title">其他建議（無法在原文中精確定位）</h3>
+            <ul id="unlocated-list" class="issue-list"></ul>
+          </div>
+        </aside>
+      </div>
+
+      <div class="card comment-card">
+        <h2 class="section-title">👩‍🏫 老師評語</h2>
+        <p id="comment"></p>
+      </div>
+    </section>
+
+    <div id="loading" class="loading" hidden>
+      <div class="spinner"></div>
+      <p>老師正在仔細批改中，請稍候……</p>
+    </div>
+  </main>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+</body>
+</html>

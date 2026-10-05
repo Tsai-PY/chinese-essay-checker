@@ -1,0 +1,400 @@
+const $ = (sel) => document.querySelector(sel);
+
+const TYPE_LABEL = { punctuation: '標點符號', typo: '錯別字', usage: '用詞錯誤' };
+
+const SAMPLE = `我的夢想
+
+每個人都有自己的夢想,有人想當醫生,有人想當老師而我的夢想是成為一位攝影師。
+
+小時候爸爸常常帶我去爬山,他總是拿著相機拍下沿途的風景。那時我覺的,能把美麗的瞬間留下來是一件很神奇的事情。從那天開始我就對攝影產生了濃厚的興趣。
+
+上了國中以後,我用存了很久的零用錢買了第一台相機。每到假日,我就迫不急待的跑到公園拍照。雖然一開始拍的照片常常模糊不清,但是我並沒有放棄,反而更加努力的練習。我在圖書館借了很多關於攝影的書,慢慢地學會了構圖跟光線的運用。
+
+我知道要成為一名專業的攝影師並不容易,需要付出很多的努力和時間,但我相信只要我堅持下去,總有一天一定會實現我的夢想。我也希望未來能用我的鏡頭,記錄下這個世界上每一個感動人心的畫面,讓更多人看見生活中的美好!!`;
+
+const state = {
+  text: '',
+  issues: [], // {id,type,original,suggestion,explanation,start,end,status:'open'|'accepted'|'ignored'}
+  activeId: null,
+  filters: new Set(['punctuation', 'typo', 'usage']),
+};
+
+// ---------- 輸入區 ----------
+const essay = $('#essay');
+const updateCount = () => {
+  const n = essay.value.replace(/\s/g, '').length;
+  $('#char-count').textContent = `${n} 字`;
+};
+essay.addEventListener('input', updateCount);
+essay.value = localStorage.getItem('essay-draft') ?? '';
+updateCount();
+essay.addEventListener('input', () => localStorage.setItem('essay-draft', essay.value));
+
+// ---------- 影像辨識（OCR） ----------
+const imageInput = $('#image-input');
+const ocrStatus = $('#ocr-status');
+const ocrStatusText = $('#ocr-status-text');
+
+async function optimizeImage(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const MAX = 2048; // 保留字體筆畫細節，同時壓縮傳輸體積
+      let w = img.width;
+      let h = img.height;
+      if (w > MAX || h > MAX) {
+        if (w > h) {
+          h = Math.round((h * MAX) / w);
+          w = MAX;
+        } else {
+          w = Math.round((w * MAX) / h);
+          h = MAX;
+        }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
+      resolve({ dataUrl, mimeType: 'image/jpeg' });
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('圖片讀取失敗，請確認檔案格式是否正確。'));
+    };
+    img.src = url;
+  });
+}
+
+async function handleImageFiles(fileList) {
+  const images = Array.from(fileList || []).filter((f) => f.type.startsWith('image/'));
+  if (images.length === 0) return;
+
+  showError('');
+  ocrStatus.hidden = false;
+  $('#btn-check').disabled = true;
+
+  try {
+    let combinedNewText = '';
+    for (let i = 0; i < images.length; i++) {
+      const file = images[i];
+      const pageInfo = images.length > 1 ? `（第 ${i + 1}/${images.length} 頁）` : '';
+      ocrStatusText.textContent = `AI 正在辨識作文影像中的文字${pageInfo}，請稍候……`;
+
+      const { dataUrl, mimeType } = await optimizeImage(file);
+      const res = await fetch('/api/ocr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: dataUrl, mimeType }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '影像辨識失敗');
+
+      if (data.text) {
+        combinedNewText += (combinedNewText ? '\n\n' : '') + data.text;
+      }
+    }
+
+    if (combinedNewText) {
+      if (essay.value.trim()) {
+        essay.value = essay.value.trim() + '\n\n' + combinedNewText;
+      } else {
+        essay.value = combinedNewText;
+      }
+      essay.dispatchEvent(new Event('input'));
+      toast(`✅ 辨識完成！已自動填入作文內容`);
+    } else {
+      toast('⚠️ 圖片中未辨識出明顯的文字內容');
+    }
+  } catch (err) {
+    showError('影像辨識失敗：' + (err.message || String(err)));
+  } finally {
+    ocrStatus.hidden = true;
+    $('#btn-check').disabled = false;
+    imageInput.value = '';
+  }
+}
+
+imageInput.addEventListener('change', (e) => {
+  handleImageFiles(e.target.files);
+});
+
+// 支援拖曳圖片至輸入框
+essay.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  essay.classList.add('drag-over');
+});
+essay.addEventListener('dragleave', () => {
+  essay.classList.remove('drag-over');
+});
+essay.addEventListener('drop', (e) => {
+  e.preventDefault();
+  essay.classList.remove('drag-over');
+  if (e.dataTransfer?.files?.length) {
+    handleImageFiles(e.dataTransfer.files);
+  }
+});
+
+// 支援 Ctrl+V 貼上剪貼簿中的圖片
+essay.addEventListener('paste', (e) => {
+  const items = e.clipboardData?.items;
+  if (!items) return;
+  const imageFiles = [];
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      const file = item.getAsFile();
+      if (file) imageFiles.push(file);
+    }
+  }
+  if (imageFiles.length > 0) {
+    e.preventDefault();
+    handleImageFiles(imageFiles);
+  }
+});
+
+$('#btn-sample').addEventListener('click', () => {
+  essay.value = SAMPLE;
+  essay.dispatchEvent(new Event('input'));
+});
+$('#btn-clear').addEventListener('click', () => {
+  essay.value = '';
+  essay.dispatchEvent(new Event('input'));
+  essay.focus();
+});
+$('#btn-check').addEventListener('click', check);
+$('#btn-back').addEventListener('click', () => {
+  // 返回時把已採用的修正帶回輸入框，方便繼續修改
+  essay.value = correctedText();
+  essay.dispatchEvent(new Event('input'));
+  showView('input');
+});
+
+function showView(name) {
+  $('#input-view').hidden = name !== 'input';
+  $('#result-view').hidden = name !== 'result';
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function showError(msg) {
+  const el = $('#error');
+  el.textContent = msg;
+  el.hidden = !msg;
+}
+
+async function check() {
+  showError('');
+  const text = essay.value.replace(/\r\n?/g, '\n').trim();
+  if (!text) return showError('請先輸入作文內容。');
+
+  $('#loading').hidden = false;
+  $('#btn-check').disabled = true;
+  try {
+    const t0 = performance.now();
+    const res = await fetch('/api/check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '批改失敗');
+    const sec = ((performance.now() - t0) / 1000).toFixed(1);
+
+    state.text = data.text;
+    state.issues = data.issues.map((it) => ({ ...it, status: 'open' }));
+    state.activeId = null;
+    renderUnlocated(data.unlocated || []);
+    $('#comment').textContent = data.comment || '';
+
+    const badge = $('#model-badge');
+    if (badge) {
+      badge.textContent = `${data.model || 'AI 批改'} · 耗時 ${sec} 秒`;
+      badge.hidden = false;
+    }
+
+    render();
+    showView('result');
+  } catch (err) {
+    showError(err.message || String(err));
+  } finally {
+    $('#loading').hidden = true;
+    $('#btn-check').disabled = false;
+  }
+}
+
+// ---------- 結果區 ----------
+$('#filters').addEventListener('change', (e) => {
+  if (e.target.checked) state.filters.add(e.target.value);
+  else state.filters.delete(e.target.value);
+  render();
+});
+
+$('#btn-accept-all').addEventListener('click', () => {
+  state.issues.forEach((it) => {
+    if (it.status === 'open' && state.filters.has(it.type)) it.status = 'accepted';
+  });
+  render();
+  toast('已採用所有顯示中的建議');
+});
+
+$('#btn-copy').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(correctedText());
+    toast('已複製修正後的文章（僅包含已採用的修正）');
+  } catch {
+    toast('複製失敗，請手動選取文字');
+  }
+});
+
+function correctedText() {
+  let out = '';
+  let pos = 0;
+  for (const it of state.issues) {
+    out += state.text.slice(pos, it.start);
+    out += it.status === 'accepted' ? it.suggestion : it.original;
+    pos = it.end;
+  }
+  return out + state.text.slice(pos);
+}
+
+function render() {
+  renderAnnotated();
+  renderList();
+  for (const type of Object.keys(TYPE_LABEL)) {
+    document.querySelector(`[data-count="${type}"]`).textContent =
+      state.issues.filter((i) => i.type === type).length;
+  }
+  const visible = state.issues.filter((i) => state.filters.has(i.type));
+  $('#issue-total').textContent = `（共 ${visible.length} 處）`;
+}
+
+function renderAnnotated() {
+  const root = $('#annotated');
+  root.replaceChildren();
+  let pos = 0;
+  for (const it of state.issues) {
+    root.append(state.text.slice(pos, it.start));
+    const span = document.createElement('span');
+    const filtered = !state.filters.has(it.type);
+    span.className = `mark ${it.type} ${it.status}` + (filtered ? ' filtered' : '') + (it.id === state.activeId ? ' active' : '');
+    span.dataset.id = it.id;
+    span.textContent = it.status === 'accepted' ? it.suggestion : it.original;
+    if (!filtered && it.status !== 'ignored') {
+      span.tabIndex = 0;
+      span.setAttribute('role', 'button');
+      span.title = `${TYPE_LABEL[it.type]}：「${it.original}」→「${it.suggestion}」`;
+      const sup = document.createElement('sup');
+      sup.textContent = it.id;
+      span.append(sup);
+    }
+    root.append(span);
+    pos = it.end;
+  }
+  root.append(state.text.slice(pos));
+}
+
+function renderList() {
+  const list = $('#issue-list');
+  list.replaceChildren();
+  const visible = state.issues.filter((i) => state.filters.has(i.type));
+  if (state.issues.length === 0) {
+    list.innerHTML = '<li class="empty-state">🎉 太棒了！沒有發現明顯的錯誤。</li>';
+    return;
+  }
+  for (const it of visible) list.append(issueCard(it, true));
+}
+
+function issueCard(it, actionable) {
+  const li = document.createElement('li');
+  li.className = `issue ${it.type} ${it.status || ''}` + (it.id && it.id === state.activeId ? ' active' : '');
+  if (it.id) {
+    li.id = `issue-${it.id}`;
+    li.dataset.id = it.id;
+  }
+
+  const head = document.createElement('div');
+  head.className = 'issue-head';
+  if (it.id) head.append(el('span', 'issue-no', `#${it.id}`));
+  head.append(el('span', `badge ${it.type}`, TYPE_LABEL[it.type] || it.type));
+  if (it.status === 'accepted') head.append(el('span', 'status', '✔ 已採用'));
+  if (it.status === 'ignored') head.append(el('span', 'status muted', '已忽略'));
+
+  const fix = el('div', 'fix');
+  fix.append(el('span', 'from', it.original), el('span', 'arrow', '→'));
+  fix.append(it.suggestion ? el('span', 'to', it.suggestion) : el('span', 'empty', '（刪除）'));
+
+  li.append(head, fix, el('p', 'explain', it.explanation));
+
+  if (actionable) {
+    const actions = el('div', 'issue-actions');
+    if (it.status === 'open') {
+      actions.append(button('採用', 'accept', 'primary'), button('忽略', 'ignore', 'ghost'));
+    } else {
+      actions.append(button('復原', 'reset', 'ghost'));
+    }
+    li.append(actions);
+  }
+  return li;
+}
+
+function renderUnlocated(items) {
+  $('#unlocated-wrap').hidden = items.length === 0;
+  $('#unlocated-list').replaceChildren(...items.map((it) => issueCard(it, false)));
+}
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+function button(label, action, variant) {
+  const b = el('button', `btn small ${variant}`, label);
+  b.type = 'button';
+  b.dataset.action = action;
+  return b;
+}
+
+// 卡片按鈕（事件委派）
+$('#issue-list').addEventListener('click', (e) => {
+  const card = e.target.closest('.issue');
+  if (!card) return;
+  const it = state.issues.find((i) => i.id === Number(card.dataset.id));
+  const action = e.target.closest('button')?.dataset.action;
+  if (action === 'accept') it.status = 'accepted';
+  else if (action === 'ignore') it.status = 'ignored';
+  else if (action === 'reset') it.status = 'open';
+  setActive(it.id, { scrollTo: action ? null : 'text' });
+});
+
+// 點選文中標示 → 對應建議卡片
+const onMarkActivate = (e) => {
+  const mark = e.target.closest('.mark[role="button"]');
+  if (!mark) return;
+  if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+  e.preventDefault();
+  setActive(Number(mark.dataset.id), { scrollTo: 'card' });
+};
+$('#annotated').addEventListener('click', onMarkActivate);
+$('#annotated').addEventListener('keydown', onMarkActivate);
+
+function setActive(id, { scrollTo } = {}) {
+  state.activeId = id;
+  render();
+  if (scrollTo === 'card') {
+    document.getElementById(`issue-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  } else if (scrollTo === 'text') {
+    document.querySelector(`.mark[data-id="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
+
+let toastTimer;
+function toast(msg) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (t.hidden = true), 2200);
+}
