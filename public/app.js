@@ -296,7 +296,222 @@ downloadDialog.addEventListener('click', (e) => {
   if (e.target === downloadDialog) downloadDialog.close();
 });
 
-// 1. 純文字作文檔
+function escapeHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function generateWordHtml(title, bodyContent) {
+  return `<!DOCTYPE html>
+<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+<head>
+<meta charset='utf-8'>
+<title>${escapeHtml(title)}</title>
+<!--[if gte mso 9]>
+<xml>
+<w:WordDocument>
+<w:View>Print</w:View>
+<w:Zoom>100</w:Zoom>
+<w:DoNotOptimizeForBrowser/>
+</w:WordDocument>
+</xml>
+<![endif]-->
+<style>
+@page Section1 {
+  size: 595.3pt 841.9pt;
+  margin: 72pt 72pt 72pt 72pt;
+  mso-header-margin: 36pt;
+  mso-footer-margin: 36pt;
+}
+div.Section1 { page: Section1; }
+body {
+  font-family: "標楷體", "DFKai-SB", "Microsoft JhengHei", "新細明體", serif;
+  font-size: 14pt;
+  line-height: 200%;
+  color: #2b2a28;
+}
+h1 {
+  font-family: "標楷體", "DFKai-SB", serif;
+  font-size: 20pt;
+  text-align: center;
+  margin: 0 0 16pt 0;
+  color: #b5452f;
+}
+h2 {
+  font-family: "標楷體", "DFKai-SB", serif;
+  font-size: 15pt;
+  border-bottom: 1.5pt solid #b5452f;
+  padding-bottom: 4pt;
+  margin: 20pt 0 10pt 0;
+  color: #b5452f;
+}
+.meta-table {
+  width: 100%;
+  border: none;
+  font-size: 11pt;
+  line-height: 150%;
+  margin-bottom: 16pt;
+  color: #555;
+}
+.meta-table td { border: none; padding: 2pt 4pt; }
+p.essay-p {
+  margin: 0 0 12pt 0;
+  text-indent: 28pt;
+  line-height: 220%;
+}
+table.report-table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 14pt 0;
+  font-size: 11pt;
+  line-height: 150%;
+}
+table.report-table th, table.report-table td {
+  border: 1pt solid #bbb;
+  padding: 6pt 8pt;
+  text-align: left;
+}
+table.report-table th {
+  background-color: #f6f3ee;
+  color: #333;
+  font-weight: bold;
+}
+.comment-box {
+  border: 1.5pt solid #b5452f;
+  background-color: #fdfaf6;
+  padding: 12pt 16pt;
+  margin: 14pt 0;
+  font-size: 12pt;
+  line-height: 180%;
+}
+.badge-punct { color: #2f6fb5; font-weight: bold; }
+.badge-typo { color: #c8323c; font-weight: bold; }
+.badge-usage { color: #c27a0e; font-weight: bold; }
+.status-accepted { color: #2e8b57; font-weight: bold; }
+</style>
+</head>
+<body>
+<div class="Section1">
+${bodyContent}
+</div>
+</body>
+</html>`;
+}
+
+// 1. Word 作文稿 (.doc)
+$('#btn-dl-word-essay').addEventListener('click', () => {
+  downloadDialog.close();
+  const ts = getTimestamp();
+  const paragraphs = correctedText()
+    .split('\n')
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((p) => `<p class="essay-p">${escapeHtml(p)}</p>`)
+    .join('\n');
+  const html = generateWordHtml('國文作文（修正後）', `
+    <h1>國文作文（修正後）</h1>
+    ${paragraphs}
+  `);
+  const filename = `作文_修正後_${ts}.doc`;
+  downloadFile(filename, html, 'application/msword;charset=utf-8');
+  toast(`已下載 Word 作文稿：${filename}`);
+});
+
+// 2. Word 完整批改報告 (.doc)
+$('#btn-dl-word-report').addEventListener('click', () => {
+  downloadDialog.close();
+  const ts = getTimestamp();
+  const dateStr = getFormattedDate();
+  const wordCount = state.text.replace(/\s/g, '').length;
+  const pCount = state.issues.filter((i) => i.type === 'punctuation').length;
+  const tCount = state.issues.filter((i) => i.type === 'typo').length;
+  const uCount = state.issues.filter((i) => i.type === 'usage').length;
+
+  const correctedParagraphs = correctedText()
+    .split('\n')
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((p) => `<p class="essay-p">${escapeHtml(p)}</p>`)
+    .join('\n');
+
+  const originalParagraphs = state.text
+    .split('\n')
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((p) => `<p class="essay-p">${escapeHtml(p)}</p>`)
+    .join('\n');
+
+  let tableRows = '';
+  if (state.issues.length === 0) {
+    tableRows = `<tr><td colspan="6" style="text-align:center;color:#2e8b57;">太棒了！無明顯問題，表現優異。</td></tr>`;
+  } else {
+    state.issues.forEach((it, idx) => {
+      const typeLabel = TYPE_LABEL[it.type] || it.type;
+      const badgeClass = it.type === 'punctuation' ? 'badge-punct' : it.type === 'typo' ? 'badge-typo' : 'badge-usage';
+      const statusStr = it.status === 'accepted' ? '<span class="status-accepted">✔ 已採用</span>' : it.status === 'ignored' ? '已忽略' : '未決定';
+      tableRows += `<tr>
+        <td style="text-align:center;">${idx + 1}</td>
+        <td class="${badgeClass}">${escapeHtml(typeLabel)}</td>
+        <td style="color:#c8323c;text-decoration:line-through;">${escapeHtml(it.original)}</td>
+        <td style="color:#2e8b57;font-weight:bold;">${escapeHtml(it.suggestion || '(刪除)')}</td>
+        <td>${statusStr}</td>
+        <td>${escapeHtml(it.explanation)}</td>
+      </tr>`;
+    });
+  }
+
+  const content = `
+    <h1>📝 國文作文批改報告</h1>
+    <table class="meta-table">
+      <tr>
+        <td><b>批改時間：</b>${escapeHtml(dateStr)}</td>
+        <td style="text-align:right;"><b>文章字數：</b>${wordCount} 字</td>
+      </tr>
+      <tr>
+        <td colspan="2"><b>問題標示：</b>共 ${state.issues.length} 處（標點符號 ${pCount} 處、錯別字 ${tCount} 處、用詞錯誤 ${uCount} 處）</td>
+      </tr>
+    </table>
+
+    <h2>一、修正後作文全文</h2>
+    ${correctedParagraphs}
+
+    <h2>二、批改與建議對照表</h2>
+    <table class="report-table">
+      <thead>
+        <tr>
+          <th style="width:40pt;text-align:center;">編號</th>
+          <th style="width:70pt;">類別</th>
+          <th style="width:90pt;">原文片段</th>
+          <th style="width:90pt;">建議修正</th>
+          <th style="width:60pt;">狀態</th>
+          <th>說明</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${tableRows}
+      </tbody>
+    </table>
+
+    <h2>三、👩‍🏫 老師評語</h2>
+    <div class="comment-box">
+      ${escapeHtml($('#comment').textContent || '無特別評語。')}
+    </div>
+
+    <h2>四、學生原始作文</h2>
+    ${originalParagraphs}
+  `;
+
+  const html = generateWordHtml('國文作文批改報告', content);
+  const filename = `作文批改報告_${ts}.doc`;
+  downloadFile(filename, html, 'application/msword;charset=utf-8');
+  toast(`已下載 Word 批改報告：${filename}`);
+});
+
+// 3. 純文字作文檔
 $('#btn-dl-text').addEventListener('click', () => {
   downloadDialog.close();
   const text = correctedText();
