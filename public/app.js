@@ -248,6 +248,156 @@ $('#btn-copy').addEventListener('click', async () => {
   }
 });
 
+// ---------- 另存檔案與列印 ----------
+function downloadFile(filename, content, type = 'text/plain;charset=utf-8') {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function getTimestamp() {
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
+}
+
+function getFormattedDate() {
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${now.getFullYear()}/${pad(now.getMonth() + 1)}/${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+}
+
+// 線上列印
+$('#btn-print').addEventListener('click', () => {
+  $('#print-date').textContent = getFormattedDate();
+  const pCount = state.issues.filter((i) => i.type === 'punctuation').length;
+  const tCount = state.issues.filter((i) => i.type === 'typo').length;
+  const uCount = state.issues.filter((i) => i.type === 'usage').length;
+  const wordCount = state.text.replace(/\s/g, '').length;
+  $('#print-stats').textContent = `文章字數：${wordCount} 字 ｜ 標點 ${pCount} 處、錯字 ${tCount} 處、用詞 ${uCount} 處`;
+  window.print();
+});
+
+// 另存檔案對話框控制
+const downloadDialog = $('#download-dialog');
+$('#btn-download').addEventListener('click', () => {
+  downloadDialog.showModal();
+});
+$('#btn-close-dialog').addEventListener('click', () => {
+  downloadDialog.close();
+});
+downloadDialog.addEventListener('click', (e) => {
+  if (e.target === downloadDialog) downloadDialog.close();
+});
+
+// 1. 純文字作文檔
+$('#btn-dl-text').addEventListener('click', () => {
+  downloadDialog.close();
+  const text = correctedText();
+  const filename = `作文_修正後_${getTimestamp()}.txt`;
+  downloadFile(filename, text);
+  toast(`已下載：${filename}`);
+});
+
+// 2. 完整批改報告 (.txt)
+$('#btn-dl-report').addEventListener('click', () => {
+  downloadDialog.close();
+  const ts = getTimestamp();
+  const dateStr = getFormattedDate();
+  const wordCount = state.text.replace(/\s/g, '').length;
+  const pCount = state.issues.filter((i) => i.type === 'punctuation').length;
+  const tCount = state.issues.filter((i) => i.type === 'typo').length;
+  const uCount = state.issues.filter((i) => i.type === 'usage').length;
+
+  let report = '';
+  report += '============================================================\r\n';
+  report += '               📝 國文作文批改報告\r\n';
+  report += '============================================================\r\n';
+  report += `批改時間：${dateStr}\r\n`;
+  report += `原文長度：${wordCount} 字\r\n`;
+  report += `問題標示：共 ${state.issues.length} 處（標點符號 ${pCount} 處、錯別字 ${tCount} 處、用詞錯誤 ${uCount} 處）\r\n`;
+  report += '============================================================\r\n\r\n';
+
+  report += '【一、修正後作文全文】\r\n';
+  report += '------------------------------------------------------------\r\n';
+  report += correctedText() + '\r\n';
+  report += '------------------------------------------------------------\r\n\r\n';
+
+  report += '【二、批改與修正建議對照清單】\r\n';
+  report += '------------------------------------------------------------\r\n';
+  if (state.issues.length === 0) {
+    report += '無明顯問題，表現優異！\r\n';
+  } else {
+    state.issues.forEach((it, idx) => {
+      const typeStr = TYPE_LABEL[it.type] || it.type;
+      const statusStr = it.status === 'accepted' ? '[已採用]' : it.status === 'ignored' ? '[已忽略]' : '[未決定]';
+      report += `${idx + 1}. [${typeStr}] ${statusStr} 「${it.original}」 → 「${it.suggestion || '(刪除)'}」\r\n`;
+      if (it.explanation) {
+        report += `   說明：${it.explanation}\r\n`;
+      }
+      report += '\r\n';
+    });
+  }
+  report += '------------------------------------------------------------\r\n\r\n';
+
+  report += '【三、學生原始作文】\r\n';
+  report += '------------------------------------------------------------\r\n';
+  report += state.text + '\r\n';
+  report += '------------------------------------------------------------\r\n\r\n';
+
+  report += '【四、👩‍🏫 老師評語】\r\n';
+  report += '------------------------------------------------------------\r\n';
+  report += ($('#comment').textContent || '無特別評語。') + '\r\n';
+  report += '============================================================\r\n';
+
+  const filename = `作文批改報告_${ts}.txt`;
+  downloadFile(filename, report);
+  toast(`已下載：${filename}`);
+});
+
+// 3. Markdown 格式報告 (.md)
+$('#btn-dl-md').addEventListener('click', () => {
+  downloadDialog.close();
+  const ts = getTimestamp();
+  const dateStr = getFormattedDate();
+  const wordCount = state.text.replace(/\s/g, '').length;
+
+  let md = '';
+  md += `# 📝 國文作文批改報告\n\n`;
+  md += `- **批改時間**：${dateStr}\n`;
+  md += `- **文章字數**：${wordCount} 字\n`;
+  md += `- **問題統計**：共 ${state.issues.length} 處（標點 ${state.issues.filter((i) => i.type === 'punctuation').length} 處、錯字 ${state.issues.filter((i) => i.type === 'typo').length} 處、用詞 ${state.issues.filter((i) => i.type === 'usage').length} 處）\n\n`;
+
+  md += `## 一、修正後作文\n\n`;
+  md += `\`\`\`text\n${correctedText()}\n\`\`\`\n\n`;
+
+  md += `## 二、修正建議清單\n\n`;
+  md += `| 編號 | 類別 | 原文 | 建議修正 | 狀態 | 說明 |\n`;
+  md += `|---|---|---|---|---|---|\n`;
+  state.issues.forEach((it, idx) => {
+    const typeStr = TYPE_LABEL[it.type] || it.type;
+    const statusStr = it.status === 'accepted' ? '✔ 已採用' : it.status === 'ignored' ? '已忽略' : '未決定';
+    md += `| ${idx + 1} | ${typeStr} | \`${it.original}\` | **\`${it.suggestion || '(刪除)'}\`** | ${statusStr} | ${it.explanation.replace(/\|/g, '、')} |\n`;
+  });
+  md += `\n\n`;
+
+  md += `## 三、👩‍🏫 老師評語\n\n`;
+  md += `> ${$('#comment').textContent || '無'}\n\n`;
+
+  md += `## 四、學生原文\n\n`;
+  md += `\`\`\`text\n${state.text}\n\`\`\`\n`;
+
+  const filename = `作文批改報告_${ts}.md`;
+  downloadFile(filename, md, 'text/markdown;charset=utf-8');
+  toast(`已下載：${filename}`);
+});
+
 function correctedText() {
   let out = '';
   let pos = 0;

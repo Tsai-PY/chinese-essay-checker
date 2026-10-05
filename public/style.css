@@ -222,3 +222,182 @@ textarea.drag-over {
   background: #fffaf9;
 }
 
+/* ---- 對話框 (Dialog) ---- */
+.dialog {
+  border: none;
+  border-radius: var(--radius);
+  padding: 0;
+  max-width: 520px;
+  width: 90%;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
+  background: var(--card);
+}
+.dialog::backdrop {
+  background: rgba(43, 42, 40, 0.45);
+  backdrop-filter: blur(2px);
+}
+.dialog-content { padding: 1.5rem; }
+.dialog-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: .5rem; }
+.dialog-title { margin: 0; font-size: 1.25rem; font-weight: 700; }
+.dialog-close {
+  background: transparent;
+  border: none;
+  font-size: 1.25rem;
+  color: var(--muted);
+  cursor: pointer;
+  padding: .2rem .5rem;
+  border-radius: 4px;
+}
+.dialog-close:hover { background: #eee; }
+.dialog-desc { color: var(--muted); margin: 0 0 1.2rem; font-size: .95rem; }
+.download-options { display: grid; gap: .75rem; }
+.download-option {
+  display: flex;
+  align-items: flex-start;
+  gap: .9rem;
+  text-align: left;
+  padding: .9rem 1rem;
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 8px;
+  cursor: pointer;
+  font: inherit;
+  transition: border-color .15s, background .15s, transform .05s;
+}
+.download-option:hover {
+  border-color: var(--primary);
+  background: #fffdfb;
+}
+.download-option:active { transform: translateY(1px); }
+.dl-icon { font-size: 1.6rem; line-height: 1; flex-shrink: 0; }
+.dl-info strong { display: block; font-size: 1rem; color: var(--ink); margin-bottom: .2rem; }
+.dl-info small { display: block; font-size: .85rem; color: var(--muted); line-height: 1.4; }
+
+/* ---- 列印樣式 (Print) ---- */
+@media screen {
+  .print-header { display: none !important; }
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 1.5cm;
+  }
+
+  body {
+    background: #fff !important;
+    color: #000 !important;
+    font-size: 11pt;
+    line-height: 1.6;
+  }
+
+  .site-header,
+  #input-view,
+  .result-toolbar,
+  .filters,
+  .hint,
+  .issue-actions,
+  .toast,
+  .loading,
+  .dialog,
+  #model-badge {
+    display: none !important;
+  }
+
+  main {
+    max-width: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .card {
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    background: transparent !important;
+  }
+
+  .print-header {
+    display: block !important;
+    border-bottom: 2pt solid #000;
+    padding-bottom: 8pt;
+    margin-bottom: 14pt;
+  }
+  .print-header h1 {
+    margin: 0;
+    font-size: 18pt;
+    letter-spacing: .05em;
+  }
+  .print-meta {
+    display: flex;
+    justify-content: space-between;
+    font-size: 9.5pt;
+    color: #444;
+    margin-top: 4pt;
+  }
+
+  .result-grid {
+    display: block !important;
+  }
+
+  .annotated {
+    font-size: 12pt !important;
+    line-height: 2.2 !important;
+    border: 1pt solid #bbb !important;
+    border-radius: 4pt;
+    padding: 12pt !important;
+    margin-bottom: 18pt !important;
+    background: #fafafa !important;
+  }
+
+  .mark {
+    text-decoration: underline !important;
+    background: transparent !important;
+  }
+  .mark.punctuation { text-decoration-color: #000 !important; }
+  .mark.typo { text-decoration-color: #000 !important; font-weight: bold; }
+  .mark.usage { text-decoration-color: #000 !important; }
+  .mark.accepted { color: #000 !important; font-weight: bold; }
+
+  .issues-card {
+    position: static !important;
+    max-height: none !important;
+    overflow: visible !important;
+    margin-top: 14pt;
+    page-break-before: auto;
+  }
+
+  .issue-list {
+    gap: 8pt !important;
+  }
+
+  .issue {
+    border: 1pt solid #ccc !important;
+    border-left: 3pt solid #333 !important;
+    border-radius: 4pt !important;
+    padding: 6pt 8pt !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    background: #fff !important;
+  }
+
+  .fix .to {
+    color: #000 !important;
+    font-weight: bold;
+  }
+  .fix .from {
+    color: #666 !important;
+  }
+
+  .comment-card {
+    margin-top: 18pt !important;
+    border: 1pt solid #aaa !important;
+    border-radius: 4pt;
+    padding: 10pt !important;
+    background: #fdfdfd !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}
+
+

@@ -46,10 +46,20 @@
 
     <!-- 結果區 -->
     <section id="result-view" hidden>
+      <div class="print-header" hidden>
+        <h1>📝 國文作文批改報告</h1>
+        <div class="print-meta">
+          <span>列印時間：<span id="print-date"></span></span>
+          <span id="print-stats"></span>
+        </div>
+      </div>
+
       <div class="toolbar result-toolbar">
         <button type="button" id="btn-back" class="btn ghost">← 返回修改</button>
         <div class="spacer"></div>
         <button type="button" id="btn-accept-all" class="btn">全部採用</button>
+        <button type="button" id="btn-download" class="btn">💾 另存作文檔</button>
+        <button type="button" id="btn-print" class="btn">🖨️ 線上列印</button>
         <button type="button" id="btn-copy" class="btn primary">複製修正後文章</button>
       </div>
 
@@ -93,5 +103,39 @@
   </main>
 
   <div id="toast" class="toast" role="status" hidden></div>
+
+  <!-- 另存檔案對話框 -->
+  <dialog id="download-dialog" class="dialog">
+    <div class="dialog-content">
+      <div class="dialog-header">
+        <h3 class="dialog-title">💾 另存作文檔案</h3>
+        <button type="button" id="btn-close-dialog" class="dialog-close" aria-label="關閉">✕</button>
+      </div>
+      <p class="dialog-desc">請選擇您希望儲存的檔案格式：</p>
+      <div class="download-options">
+        <button type="button" id="btn-dl-text" class="download-option">
+          <span class="dl-icon">📄</span>
+          <div class="dl-info">
+            <strong>僅儲存修正後作文（.txt）</strong>
+            <small>包含您已採用建議的作文純文字，適合列印或繳交作業。</small>
+          </div>
+        </button>
+        <button type="button" id="btn-dl-report" class="download-option">
+          <span class="dl-icon">📋</span>
+          <div class="dl-info">
+            <strong>儲存完整批改報告（.txt）</strong>
+            <small>包含原文、修正後文章、所有標點／錯別字清單及老師評語。</small>
+          </div>
+        </button>
+        <button type="button" id="btn-dl-md" class="download-option">
+          <span class="dl-icon">📑</span>
+          <div class="dl-info">
+            <strong>儲存 Markdown 格式報告（.md）</strong>
+            <small>適合在 Notion、Obsidian 或各類筆記軟體中檢視與排版。</small>
+          </div>
+        </button>
+      </div>
+    </div>
+  </dialog>
 </body>
 </html>
