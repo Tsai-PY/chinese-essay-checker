@@ -404,26 +404,7 @@ ${bodyContent}
 </html>`;
 }
 
-// 1. Word 作文稿 (.doc)
-$('#btn-dl-word-essay').addEventListener('click', () => {
-  downloadDialog.close();
-  const ts = getTimestamp();
-  const paragraphs = correctedText()
-    .split('\n')
-    .map((p) => p.trim())
-    .filter(Boolean)
-    .map((p) => `<p class="essay-p">${escapeHtml(p)}</p>`)
-    .join('\n');
-  const html = generateWordHtml('國文作文（修正後）', `
-    <h1>國文作文（修正後）</h1>
-    ${paragraphs}
-  `);
-  const filename = `作文_修正後_${ts}.doc`;
-  downloadFile(filename, html, 'application/msword;charset=utf-8');
-  toast(`已下載 Word 作文稿：${filename}`);
-});
-
-// 2. Word 完整批改報告 (.doc)
+// 1. Word 完整批改報告 (.doc)
 $('#btn-dl-word-report').addEventListener('click', () => {
   downloadDialog.close();
   const ts = getTimestamp();
