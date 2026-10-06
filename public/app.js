@@ -1,3 +1,6 @@
+import { locateIssues } from './lib/locate.js';
+import { findHalfWidthPunctuation } from './lib/punctuation.js';
+
 const $ = (sel) => document.querySelector(sel);
 
 const TYPE_LABEL = { punctuation: '標點符號', typo: '錯別字', usage: '用詞錯誤' };
@@ -18,6 +21,275 @@ const state = {
   activeId: null,
   filters: new Set(['punctuation', 'typo', 'usage']),
 };
+
+// ---------- API Key 管理（純靜態空間如 Netlify Drop 使用） ----------
+const API_KEY_STORAGE_KEY = 'gemini_api_key';
+const getSavedApiKey = () => localStorage.getItem(API_KEY_STORAGE_KEY)?.trim() || '';
+const setSavedApiKey = (k) => {
+  if (k) localStorage.setItem(API_KEY_STORAGE_KEY, k);
+  else localStorage.removeItem(API_KEY_STORAGE_KEY);
+  updateApiKeyStatusUI();
+};
+
+function updateApiKeyStatusUI() {
+  const btn = $('#btn-open-api-key');
+  const txt = $('#api-key-status-text');
+  const hasKey = !!getSavedApiKey();
+  if (btn && txt) {
+    if (hasKey) {
+      btn.classList.add('configured');
+      txt.textContent = 'API Key 已就緒';
+      btn.title = '已設定 Google Gemini API Key（點擊可修改或清除）';
+    } else {
+      btn.classList.remove('configured');
+      txt.textContent = '設定 API Key';
+      btn.title = '設定 Google Gemini API Key（純靜態託管如 Netlify Drop 必備）';
+    }
+  }
+}
+
+const apiKeyDialog = $('#api-key-dialog');
+const inputApiKey = $('#input-api-key');
+let apiKeyResolver = null;
+
+function promptApiKey(tip = '') {
+  return new Promise((resolve) => {
+    apiKeyResolver = resolve;
+    inputApiKey.value = getSavedApiKey();
+    if (tip) {
+      const desc = apiKeyDialog?.querySelector('.dialog-desc');
+      if (desc) desc.textContent = tip;
+    }
+    if (typeof apiKeyDialog?.showModal === 'function') {
+      apiKeyDialog.showModal();
+    } else {
+      const promptVal = window.prompt(tip || '請輸入您的 Google Gemini API Key（儲存於您的瀏覽器中）：', getSavedApiKey());
+      if (promptVal !== null) {
+        setSavedApiKey(promptVal.trim());
+        resolve(getSavedApiKey());
+      } else {
+        resolve('');
+      }
+    }
+  });
+}
+
+$('#btn-open-api-key')?.addEventListener('click', () => {
+  inputApiKey.value = getSavedApiKey();
+  apiKeyDialog?.showModal();
+});
+$('#btn-close-api-dialog')?.addEventListener('click', () => {
+  apiKeyDialog?.close();
+  if (apiKeyResolver) { apiKeyResolver(''); apiKeyResolver = null; }
+});
+$('#btn-cancel-api-key')?.addEventListener('click', () => {
+  apiKeyDialog?.close();
+  if (apiKeyResolver) { apiKeyResolver(''); apiKeyResolver = null; }
+});
+$('#btn-clear-api-key')?.addEventListener('click', () => {
+  setSavedApiKey('');
+  inputApiKey.value = '';
+  apiKeyDialog?.close();
+  if (apiKeyResolver) { apiKeyResolver(''); apiKeyResolver = null; }
+  toast('已清除 API Key');
+});
+$('#api-key-form')?.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const val = inputApiKey.value.trim();
+  if (val) {
+    setSavedApiKey(val);
+    apiKeyDialog?.close();
+    toast('✅ API Key 儲存成功！');
+    if (apiKeyResolver) { apiKeyResolver(val); apiKeyResolver = null; }
+  } else {
+    alert('請輸入有效的 API Key');
+  }
+});
+updateApiKeyStatusUI();
+
+// ---------- 前端直接呼叫 Gemini API（純靜態空間 fallback） ----------
+const GEMINI_SYSTEM_INSTRUCTION = `你是一位經驗豐富、細心且溫和的臺灣國中、高中國文老師，正在批改學生的作文。
+請以教育部《重訂標點符號手冊》與《國語辭典》的臺灣正體中文用法為標準，找出作文中的下列問題：
+
+1. punctuation（標點符號）：
+   - 「半形標點改全形」已由程式自動檢查，你不需要為了單純的半形→全形另外列出；
+     但若該處同時有用法錯誤（例如半形逗號其實應改為句號或分號），請照常列出，suggestion 使用全形標點。
+   - 一逗到底、該斷句未斷、句號與逗號誤用、頓號與逗號誤用、引號使用錯誤（臺灣使用「」與『』）、
+     刪節號應為六點「……」、破折號應為「——」、問句缺問號、書名號篇名號誤用等。
+2. typo（錯別字）：同音或形近錯字，例如「在/再」、「的/得/地」誤用、「已/以」、「做/作」、「哪/那」、
+   「辨/辯/辦」、「既/即」、「渡/度」、「部/步」、「象/像」、簡體字等。
+3. usage（用詞或語法錯誤）：成語誤用或寫錯、詞語搭配不當、語意重複（如「大約……左右」）、
+   句子成分殘缺或雜糅、關聯詞誤用、口語或網路用語不適合作文、語序不當等。
+
+輸出規則（非常重要）：
+- 依問題在文中出現的先後順序列出。
+- original 必須「逐字」複製自學生原文（包含原本的標點與空白），不可改寫，且至少一個字。
+  若是「缺少標點」，請把缺漏處前後相鄰的幾個字一起放進 original，並在 suggestion 中補上標點。
+  例如原文「天氣很好我們去郊遊」→ original「很好我們」、suggestion「很好，我們」。
+- original 盡量精簡，只涵蓋需要修改的部分（通常 1～8 個字），不要整句整段。
+- suggestion 是用來直接取代 original 的修正文字。
+- context_before 為原文中緊接在 original 之前的 4～6 個字（逐字複製；若在文章開頭則為空字串），用來協助定位。
+- explanation 用一兩句簡短、親切、學生看得懂的話說明錯誤原因與正確用法。
+- 只指出確定的錯誤，不要為了風格偏好而修改；學生的創意寫法若沒有錯就保留。
+- 嚴格遵守教育部標準：臺灣正體中文標點（引號「」、破折號——、刪節號……佔兩格）。
+- 嚴格遵循輸出的 JSON 格式，不可夾帶額外的 Markdown 或說明。
+- comment 請以溫和鼓勵的國文老師口吻，給予 60~120 字的總體評價與寫作精進建議。`;
+
+async function callGeminiApiDirect(apiKey, model, payload) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    const errorMsg = data.error?.message || `API 回傳錯誤 (${res.status})`;
+    throw new Error(errorMsg);
+  }
+  return data;
+}
+
+async function clientSideCheckEssay(text) {
+  let key = getSavedApiKey();
+  if (!key) {
+    key = await promptApiKey('📌 偵測到您使用 Netlify Drop 純靜態託管（無後端伺服器），請輸入一次您的 Google Gemini API Key 即可啟用批改：');
+    if (!key) throw new Error('請先設定 Google Gemini API Key 以啟用批改功能。');
+  }
+
+  const ruleIssues = findHalfWidthPunctuation(text);
+  const promptText = `請批改下列學生的作文：\n\n${text}`;
+  const payload = {
+    contents: [{ parts: [{ text: promptText }] }],
+    systemInstruction: { parts: [{ text: GEMINI_SYSTEM_INSTRUCTION }] },
+    generationConfig: {
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: 'OBJECT',
+        properties: {
+          issues: {
+            type: 'ARRAY',
+            items: {
+              type: 'OBJECT',
+              properties: {
+                type: { type: 'STRING', enum: ['punctuation', 'typo', 'usage'] },
+                original: { type: 'STRING' },
+                suggestion: { type: 'STRING' },
+                context_before: { type: 'STRING' },
+                explanation: { type: 'STRING' },
+              },
+              required: ['type', 'original', 'suggestion', 'explanation'],
+            },
+          },
+          comment: { type: 'STRING' },
+        },
+        required: ['issues', 'comment'],
+      },
+    },
+  };
+
+  const models = ['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
+  let lastErr = null;
+  let parsed = null;
+  let usedModel = '';
+
+  for (const model of models) {
+    try {
+      const data = await callGeminiApiDirect(key, model, payload);
+      const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!rawText) throw new Error('AI 未回傳任何文字');
+      parsed = JSON.parse(rawText);
+      usedModel = model;
+      break;
+    } catch (err) {
+      console.warn(`模型 ${model} 呼叫失敗：`, err);
+      lastErr = err;
+      if (err.message.includes('API_KEY_INVALID') || err.message.includes('API key not valid')) {
+        throw new Error('您的 Gemini API Key 無效，請點擊右上角「⚙️ 設定 API Key」重新輸入。');
+      }
+    }
+  }
+
+  if (!parsed) {
+    throw new Error('AI 批改服務暫時無法連線：' + (lastErr?.message || lastErr));
+  }
+
+  const { located, unlocated } = locateIssues(text, parsed.issues ?? [], ruleIssues);
+  const allLocated = [...ruleIssues, ...located].sort((a, b) => a.start - b.start);
+  const issues = allLocated.map((it, idx) => ({ id: idx + 1, ...it }));
+
+  return {
+    text,
+    issues,
+    unlocated,
+    comment: parsed.comment ?? '',
+    model: usedModel + ' (純靜態瀏覽器端)',
+  };
+}
+
+async function clientSideOcr(dataUrl, mimeType) {
+  let key = getSavedApiKey();
+  if (!key) {
+    key = await promptApiKey('📌 偵測到您使用 Netlify Drop 純靜態託管（無後端伺服器），請輸入一次您的 Google Gemini API Key 即可啟用照片辨識：');
+    if (!key) throw new Error('請先設定 Google Gemini API Key 以啟用圖片辨識功能。');
+  }
+
+  let base64Data = dataUrl;
+  const m = dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+  if (m) {
+    mimeType = m[1];
+    base64Data = m[2];
+  }
+
+  const payload = {
+    contents: [
+      {
+        parts: [
+          {
+            text: `你是一位細心的國文老師，正在把學生手寫或影印的作文影像轉錄為文字。
+請仔細辨識圖片中的中文作文內容，輸出轉錄後的純文字。
+規則：
+1. 忠實轉錄：字體、標點符號、換行都要盡可能還原原本手稿，絕對不要擅自修改學生的錯別字或文句（保留原始錯誤以供後續批改）。
+2. 只輸出轉錄出的作文文字，不要加入任何問候語、前言、後記、Markdown 標記或解說。
+3. 若有無法辨認的字，請以「□」代替。`,
+          },
+          {
+            inlineData: {
+              mimeType: mimeType || 'image/jpeg',
+              data: base64Data,
+            },
+          },
+        ],
+      },
+    ],
+  };
+
+  const models = ['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
+  let lastErr = null;
+  let text = '';
+  let usedModel = '';
+
+  for (const model of models) {
+    try {
+      const data = await callGeminiApiDirect(key, model, payload);
+      text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? '';
+      usedModel = model;
+      break;
+    } catch (err) {
+      console.warn(`OCR 模型 ${model} 呼叫失敗：`, err);
+      lastErr = err;
+      if (err.message.includes('API_KEY_INVALID') || err.message.includes('API key not valid')) {
+        throw new Error('您的 Gemini API Key 無效，請點擊右上角「⚙️ 設定 API Key」重新輸入。');
+      }
+    }
+  }
+
+  if (!text && lastErr) {
+    throw new Error('AI 影像辨識失敗：' + (lastErr?.message || lastErr));
+  }
+
+  return { text, model: usedModel };
+}
 
 // ---------- 輸入區 ----------
 const essay = $('#essay');
@@ -85,13 +357,26 @@ async function handleImageFiles(fileList) {
       ocrStatusText.textContent = `AI 正在辨識作文影像中的文字${pageInfo}，請稍候……`;
 
       const { dataUrl, mimeType } = await optimizeImage(file);
-      const res = await fetch('/api/ocr', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: dataUrl, mimeType }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || '影像辨識失敗');
+      let data;
+      try {
+        const res = await fetch('/api/ocr', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: dataUrl, mimeType }),
+        });
+        if (res.status === 404 || res.status === 405) {
+          data = await clientSideOcr(dataUrl, mimeType);
+        } else {
+          data = await res.json();
+          if (!res.ok) throw new Error(data.error || '影像辨識失敗');
+        }
+      } catch (fetchErr) {
+        if (fetchErr.message && (fetchErr.message.includes('Failed to fetch') || fetchErr.message.includes('NetworkError') || fetchErr.message.includes('Load failed'))) {
+          data = await clientSideOcr(dataUrl, mimeType);
+        } else {
+          throw fetchErr;
+        }
+      }
 
       if (data.text) {
         combinedNewText += (combinedNewText ? '\n\n' : '') + data.text;
@@ -193,13 +478,26 @@ async function check() {
   $('#btn-check').disabled = true;
   try {
     const t0 = performance.now();
-    const res = await fetch('/api/check', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || '批改失敗');
+    let data;
+    try {
+      const res = await fetch('/api/check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      if (res.status === 404 || res.status === 405) {
+        data = await clientSideCheckEssay(text);
+      } else {
+        data = await res.json();
+        if (!res.ok) throw new Error(data.error || '批改失敗');
+      }
+    } catch (fetchErr) {
+      if (fetchErr.message && (fetchErr.message.includes('Failed to fetch') || fetchErr.message.includes('NetworkError') || fetchErr.message.includes('Load failed'))) {
+        data = await clientSideCheckEssay(text);
+      } else {
+        throw fetchErr;
+      }
+    }
     const sec = ((performance.now() - t0) / 1000).toFixed(1);
 
     state.text = data.text;

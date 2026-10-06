@@ -5,11 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>國文作文批改小幫手</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📝</text></svg>" />
-  <link rel="stylesheet" href="/style.css" />
-  <script type="module" src="/app.js"></script>
+  <link rel="stylesheet" href="style.css" />
+  <script type="module" src="app.js"></script>
 </head>
 <body>
   <header class="site-header">
+    <div class="header-top-actions">
+      <button type="button" id="btn-open-api-key" class="btn-api-key" title="設定 Google Gemini API Key（純靜態空間如 Netlify Drop 必備）">
+        ⚙️ <span id="api-key-status-text">設定 API Key</span>
+      </button>
+    </div>
     <h1>📝 國文作文批改小幫手</h1>
     <p>貼上作文，自動標示<span class="tag punctuation">標點符號</span><span class="tag typo">錯別字</span><span class="tag usage">用詞錯誤</span>並提供修正建議</p>
   </header>
@@ -143,6 +148,28 @@
         </button>
       </div>
     </div>
+  </dialog>
+
+  <!-- API Key 設定對話框 -->
+  <dialog id="api-key-dialog" class="api-key-dialog">
+    <form method="dialog" id="api-key-form">
+      <div class="dialog-header">
+        <h3>⚙️ 設定 Google Gemini API Key</h3>
+        <button type="button" id="btn-close-api-dialog" class="btn-close" aria-label="關閉">✕</button>
+      </div>
+      <p class="dialog-desc">若使用 <strong>Netlify Drop</strong> 或其他純靜態空間託管，請在此設定您的 API Key，即可讓網站脫離個人電腦 24 小時隨時連線。金鑰僅儲存在您的瀏覽器本機端，絕不外流。</p>
+      <div class="input-group">
+        <label for="input-api-key">Gemini API Key：</label>
+        <input type="password" id="input-api-key" placeholder="貼上您的 Gemini API Key..." autocomplete="off" />
+      </div>
+      <p class="dialog-tip">尚未申請？可前往 <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Google AI Studio</a> 免費取得。</p>
+      <div class="dialog-actions">
+        <button type="button" id="btn-clear-api-key" class="btn ghost danger">清除金鑰</button>
+        <div class="spacer"></div>
+        <button type="button" id="btn-cancel-api-key" class="btn ghost">取消</button>
+        <button type="submit" id="btn-save-api-key" class="btn primary">儲存設定</button>
+      </div>
+    </form>
   </dialog>
 </body>
 </html>
