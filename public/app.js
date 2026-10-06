@@ -1,6 +1,7 @@
 import { locateIssues } from './lib/locate.js';
 import { findHalfWidthPunctuation } from './lib/punctuation.js';
 import { detectLanguage, findEnglishPunctuationIssues } from './lib/englishRules.js';
+import { DEFAULT_API_KEY } from './config.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -37,7 +38,11 @@ const state = {
 
 // ---------- API Key 管理（純靜態空間如 Netlify Drop 使用） ----------
 const API_KEY_STORAGE_KEY = 'gemini_api_key';
-const getSavedApiKey = () => localStorage.getItem(API_KEY_STORAGE_KEY)?.trim() || '';
+const getSavedApiKey = () => {
+  const custom = localStorage.getItem(API_KEY_STORAGE_KEY);
+  if (custom !== null && custom.trim() !== '') return custom.trim();
+  return (typeof DEFAULT_API_KEY === 'string' ? DEFAULT_API_KEY.trim() : '');
+};
 const setSavedApiKey = (k) => {
   if (k) localStorage.setItem(API_KEY_STORAGE_KEY, k);
   else localStorage.removeItem(API_KEY_STORAGE_KEY);
@@ -52,7 +57,7 @@ function updateApiKeyStatusUI() {
     if (hasKey) {
       btn.classList.add('configured');
       txt.textContent = 'API Key 已就緒';
-      btn.title = '已設定 Google Gemini API Key（點擊可修改或清除）';
+      btn.title = '已就緒 Google Gemini API Key（點擊可自訂或更換）';
     } else {
       btn.classList.remove('configured');
       txt.textContent = '設定 API Key';
@@ -66,6 +71,9 @@ const inputApiKey = $('#input-api-key');
 let apiKeyResolver = null;
 
 function promptApiKey(tip = '') {
+  $('#loading').hidden = true;
+  if ($('#ocr-status')) $('#ocr-status').hidden = true;
+  $('#btn-check').disabled = false;
   return new Promise((resolve) => {
     apiKeyResolver = resolve;
     inputApiKey.value = getSavedApiKey();
@@ -246,7 +254,7 @@ async function clientSideCheckEssay(text, requestedLang = 'auto') {
     },
   };
 
-  const models = ['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
+  const models = ['gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-3.1-flash-lite'];
   let lastErr = null;
   let parsed = null;
   let usedModel = '';
@@ -323,7 +331,7 @@ async function clientSideOcr(dataUrl, mimeType) {
     ],
   };
 
-  const models = ['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
+  const models = ['gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-3.1-flash-lite'];
   let lastErr = null;
   let text = '';
   let usedModel = '';
@@ -422,25 +430,25 @@ async function handleImageFiles(fileList) {
       ocrStatusText.textContent = `AI 正在辨識作文影像中的文字${pageInfo}，請稍候……`;
 
       const { dataUrl, mimeType } = await optimizeImage(file);
-      let data;
+      let data = null;
+      let backendAvailable = false;
       try {
         const res = await fetch('/api/ocr', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ image: dataUrl, mimeType }),
         });
-        if (res.status === 404 || res.status === 405) {
-          data = await clientSideOcr(dataUrl, mimeType);
-        } else {
+        const contentType = res.headers.get('content-type') || '';
+        if (res.ok && contentType.includes('application/json')) {
           data = await res.json();
-          if (!res.ok) throw new Error(data.error || '影像辨識失敗');
+          backendAvailable = true;
         }
-      } catch (fetchErr) {
-        if (fetchErr.message && (fetchErr.message.includes('Failed to fetch') || fetchErr.message.includes('NetworkError') || fetchErr.message.includes('Load failed'))) {
-          data = await clientSideOcr(dataUrl, mimeType);
-        } else {
-          throw fetchErr;
-        }
+      } catch (netErr) {
+        console.log('後端 OCR 伺服器未啟用或離線，切換至純前端模式', netErr);
+      }
+
+      if (!backendAvailable) {
+        data = await clientSideOcr(dataUrl, mimeType);
       }
 
       if (data.text) {
@@ -569,25 +577,25 @@ async function check() {
   $('#btn-check').disabled = true;
   try {
     const t0 = performance.now();
-    let data;
+    let data = null;
+    let backendAvailable = false;
     try {
       const res = await fetch('/api/check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text, lang: state.langMode }),
       });
-      if (res.status === 404 || res.status === 405) {
-        data = await clientSideCheckEssay(text, state.langMode);
-      } else {
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
         data = await res.json();
-        if (!res.ok) throw new Error(data.error || '批改失敗');
+        backendAvailable = true;
       }
-    } catch (fetchErr) {
-      if (fetchErr.message && (fetchErr.message.includes('Failed to fetch') || fetchErr.message.includes('NetworkError') || fetchErr.message.includes('Load failed'))) {
-        data = await clientSideCheckEssay(text, state.langMode);
-      } else {
-        throw fetchErr;
-      }
+    } catch (netErr) {
+      console.log('後端批改伺服器未啟用或離線，切換至純前端模式', netErr);
+    }
+
+    if (!backendAvailable) {
+      data = await clientSideCheckEssay(text, state.langMode);
     }
     const sec = ((performance.now() - t0) / 1000).toFixed(1);
 

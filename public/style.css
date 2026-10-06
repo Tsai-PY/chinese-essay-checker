@@ -486,10 +486,12 @@ textarea.drag-over {
   width: 90vw;
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.15);
   background: var(--card);
+  z-index: 1000;
 }
 .api-key-dialog::backdrop {
   background: rgba(0, 0, 0, 0.45);
   backdrop-filter: blur(2px);
+  z-index: 999;
 }
 .dialog-header {
   display: flex;

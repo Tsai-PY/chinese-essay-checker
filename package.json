@@ -6,7 +6,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node test/locate.test.js"
+    "test": "node test/locate.test.js",
+    "package": "python package_netlify.py"
   },
   "engines": {
     "node": ">=20"
