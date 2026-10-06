@@ -15,8 +15,8 @@
         ⚙️ <span id="api-key-status-text">設定 API Key</span>
       </button>
     </div>
-    <h1>📝 國文作文批改小幫手</h1>
-    <p>貼上作文，自動標示<span class="tag punctuation">標點符號</span><span class="tag typo">錯別字</span><span class="tag usage">用詞錯誤</span>並提供修正建議</p>
+    <h1>📝 國語文／英文作文批改小幫手</h1>
+    <p>貼上作文，自動標示<span class="tag punctuation">標點符號/空格</span><span class="tag typo">錯別字/拼字</span><span class="tag usage">文法用詞</span>並提供修正建議</p>
   </header>
 
   <main>
@@ -25,10 +25,19 @@
       <div class="section-head">
         <label for="essay" class="section-title">作文內容</label>
         <div class="ocr-controls">
-          <label for="image-input" class="btn small primary-outline ocr-btn" title="用手機拍照或選取作文照片">
+          <label for="image-input" class="btn small primary-outline ocr-btn" title="用手機拍照或選取作文照片（支援中英文手寫與印刷）">
             📷 拍照／上傳圖片辨識
           </label>
           <input type="file" id="image-input" accept="image/*" capture="environment" hidden multiple />
+        </div>
+      </div>
+
+      <div class="lang-bar">
+        <span class="lang-label">🌐 批改語系：</span>
+        <div class="lang-selector" id="lang-selector">
+          <button type="button" class="lang-btn active" data-lang="auto" title="依作文內容自動判定中英文">自動偵測</button>
+          <button type="button" class="lang-btn" data-lang="zh" title="國語文作文標準批改">國文作文</button>
+          <button type="button" class="lang-btn" data-lang="en" title="英文作文語法、拼字與標點批改">英文作文 (English)</button>
         </div>
       </div>
 
@@ -37,7 +46,7 @@
         <span id="ocr-status-text">AI 正在辨識作文影像中的文字，請稍候……</span>
       </div>
 
-      <textarea id="essay" placeholder="請在這裡貼上或輸入作文，或點擊上方「📷 拍照／上傳圖片辨識」（也可直接將照片拖曳至此或按 Ctrl+V 貼上截圖）……" spellcheck="false"></textarea>
+      <textarea id="essay" placeholder="請在此貼上或輸入國文或英文作文，或點擊上方「📷 拍照／上傳圖片辨識」（也可直接將照片拖曳至此或按 Ctrl+V 貼上截圖）……" spellcheck="false"></textarea>
       
       <div class="toolbar">
         <span id="char-count" class="muted">0 字</span>
@@ -52,7 +61,7 @@
     <!-- 結果區 -->
     <section id="result-view" hidden>
       <div class="print-header" hidden>
-        <h1>📝 國文作文批改報告</h1>
+        <h1>📝 <span id="print-title-text">國語文／英文作文批改報告</span></h1>
         <div class="print-meta">
           <span>列印時間：<span id="print-date"></span></span>
           <span id="print-stats"></span>
@@ -76,9 +85,9 @@
               <span id="model-badge" class="badge" style="background:#ede8df;color:#666;font-size:0.75rem;" hidden></span>
             </div>
             <div class="filters" id="filters">
-              <label class="filter punctuation"><input type="checkbox" value="punctuation" checked /> 標點符號 <b data-count="punctuation">0</b></label>
-              <label class="filter typo"><input type="checkbox" value="typo" checked /> 錯別字 <b data-count="typo">0</b></label>
-              <label class="filter usage"><input type="checkbox" value="usage" checked /> 用詞錯誤 <b data-count="usage">0</b></label>
+              <label class="filter punctuation"><input type="checkbox" value="punctuation" checked /> <span id="label-filter-punc">標點符號</span> <b data-count="punctuation">0</b></label>
+              <label class="filter typo"><input type="checkbox" value="typo" checked /> <span id="label-filter-typo">錯別字</span> <b data-count="typo">0</b></label>
+              <label class="filter usage"><input type="checkbox" value="usage" checked /> <span id="label-filter-usage">用詞錯誤</span> <b data-count="usage">0</b></label>
             </div>
           </div>
           <div id="annotated" class="annotated" aria-live="polite"></div>

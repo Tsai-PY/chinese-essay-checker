@@ -45,6 +45,51 @@ main { max-width: 1200px; margin: 0 auto; padding: 1rem; }
 .muted { color: var(--muted); font-weight: 400; }
 .hint { font-size: .85rem; margin: .75rem 0 0; }
 
+/* 語言選擇列 */
+.lang-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  background: #fbf9f5;
+  padding: 0.4rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+.lang-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+.lang-selector {
+  display: inline-flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+.lang-btn {
+  background: #fff;
+  border: 1px solid var(--line);
+  padding: 0.25rem 0.65rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  color: var(--muted);
+  transition: all 0.2s;
+  font-family: inherit;
+}
+.lang-btn:hover {
+  border-color: #bbb;
+  color: var(--ink);
+}
+.lang-btn.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+  font-weight: 600;
+  box-shadow: 0 1px 4px rgba(181, 69, 47, 0.25);
+}
+
 textarea {
   width: 100%;
   min-height: 22rem;

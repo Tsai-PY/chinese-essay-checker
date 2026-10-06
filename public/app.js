@@ -1,11 +1,14 @@
 import { locateIssues } from './lib/locate.js';
 import { findHalfWidthPunctuation } from './lib/punctuation.js';
+import { detectLanguage, findEnglishPunctuationIssues } from './lib/englishRules.js';
 
 const $ = (sel) => document.querySelector(sel);
 
-const TYPE_LABEL = { punctuation: '標點符號', typo: '錯別字', usage: '用詞錯誤' };
+const TYPE_LABEL_ZH = { punctuation: '標點符號', typo: '錯別字', usage: '用詞錯誤' };
+const TYPE_LABEL_EN = { punctuation: '標點與空格', typo: '拼字大小寫', usage: '文法與用詞' };
+const getTypeLabel = (type, lang = state.currentLang) => (lang === 'en' ? TYPE_LABEL_EN[type] : TYPE_LABEL_ZH[type]) || type;
 
-const SAMPLE = `我的夢想
+const ZH_SAMPLE = `我的夢想
 
 每個人都有自己的夢想,有人想當醫生,有人想當老師而我的夢想是成為一位攝影師。
 
@@ -15,11 +18,21 @@ const SAMPLE = `我的夢想
 
 我知道要成為一名專業的攝影師並不容易,需要付出很多的努力和時間,但我相信只要我堅持下去,總有一天一定會實現我的夢想。我也希望未來能用我的鏡頭,記錄下這個世界上每一個感動人心的畫面,讓更多人看見生活中的美好!!`;
 
+const EN_SAMPLE = `My Favorite Season
+
+There are four season in a year, and my favorite season is summer.
+
+In the summer, the weather is very hot and sunny. I likes to go to the beach with my family. We can swim in the ocean, play volleyball, and eating delicious ice cream. Last year, we went to Kenting, we had a very wonderful time there. The sunset was so beatiful that I will never forget it.
+
+Summer also bring us the summer vacation. During the vacation, I don't have to go to school every day. I can spends more time reading interesting books and playing basketball with my friends. Although summer is very hot, but I still love it the most becuase it is full of joy and freedom.`;
+
 const state = {
   text: '',
   issues: [], // {id,type,original,suggestion,explanation,start,end,status:'open'|'accepted'|'ignored'}
   activeId: null,
   filters: new Set(['punctuation', 'typo', 'usage']),
+  langMode: localStorage.getItem('essay-lang-mode') || 'auto', // 'auto' | 'zh' | 'en'
+  currentLang: 'zh', // 'zh' | 'en' (目前檢測或選取的語言)
 };
 
 // ---------- API Key 管理（純靜態空間如 Netlify Drop 使用） ----------
@@ -108,6 +121,7 @@ $('#api-key-form')?.addEventListener('submit', (e) => {
 updateApiKeyStatusUI();
 
 // ---------- 前端直接呼叫 Gemini API（純靜態空間 fallback） ----------
+// ---------- 前端直接呼叫 Gemini API（純靜態空間 fallback） ----------
 const GEMINI_SYSTEM_INSTRUCTION = `你是一位經驗豐富、細心且溫和的臺灣國中、高中國文老師，正在批改學生的作文。
 請以教育部《重訂標點符號手冊》與《國語辭典》的臺灣正體中文用法為標準，找出作文中的下列問題：
 
@@ -135,6 +149,43 @@ const GEMINI_SYSTEM_INSTRUCTION = `你是一位經驗豐富、細心且溫和的
 - 嚴格遵循輸出的 JSON 格式，不可夾帶額外的 Markdown 或說明。
 - comment 請以溫和鼓勵的國文老師口吻，給予 60~120 字的總體評價與寫作精進建議。`;
 
+const EN_SYSTEM_INSTRUCTION = `你是一位經驗豐富、專業細心且溫和鼓勵的英文老師，正在批改學生的英文作文（English Essay）。
+請針對學生的英文作文，找出以下三類問題並給予親切詳盡的繁體中文說明：
+
+1. punctuation（標點符號與空格）：
+   - 全形中文標點符號誤用（如誤輸入全形逗號「，」、句號「。」、問號「？」等，應改為半形英文標點並於後方加空格）。
+   - 標點後缺少空格（如 "apple,banana" 應改為 "apple, banana"、"good.He" 應改為 "good. He"）。
+   - 標點前多餘空格（如 "hello , world" 應改為 "hello, world"）。
+   - 連句錯誤（Run-on sentences / Comma splice，兩個獨立子句未加連接詞僅以逗號相連，應加上分號、連接詞或拆為兩句）。
+   - 句子結尾缺少句號、問號或驚嘆號。
+   - 縮寫撇號（Apostrophe）誤用或缺漏（如 dont -> don't, its 與 it's 混淆）。
+
+2. typo（拼字與大小寫錯誤）：
+   - 單字拼字錯誤（Spelling errors，例如 becuase -> because, tomorow -> tomorrow）。
+   - 句首字母未大寫、專有名詞未大寫、第一人稱代名詞「I」未大寫。
+   - 形似音近字混淆（如 weather/whether, their/there/they're, than/then, accept/except 等）。
+
+3. usage（文法、句型與用詞）：
+   - 主詞與動詞一致性（Subject-Verb Agreement，如 "He go to school" -> "He goes to school"）。
+   - 時態錯誤（Tense consistency / errors，如敘述過去事件卻混用現在式或過去分詞）。
+   - 冠詞誤用或遺漏（Articles: a, an, the 的用法）。
+   - 名詞單複數錯誤（Plural/Singular forms, 可數與不可數名詞）。
+   - 介系詞搭配錯誤（Prepositions，如 "depend of" -> "depend on"）。
+   - 動詞形式錯誤（動名詞 Gerund / 不定詞 Infinitive，如 "enjoy to swim" -> "enjoy swimming"）。
+   - 詞性混淆（Parts of speech，如形容詞當副詞用）。
+   - 中式英文（Chinglish）或不自然表達，提供地道、道地的英文搭配詞（Collocations）與片語。
+
+輸出規則（非常重要）：
+- 依問題在文中出現的先後順序列出。
+- original 必須「逐字」精確複製自學生原文（包含原本的大小寫、空格與標點），不可改寫，且至少一個字。
+- original 盡量精簡，只涵蓋需要修改的單字或片語（通常 1～4 個英文單字），不要複製整句。
+- suggestion 是用來直接取代 original 的修正文字（包含正確的英文大小寫與空格）。
+- context_before 為原文中緊接在 original 之前的 2～5 個單字或 8～15 個字元（逐字複製；若在文章開頭則為空字串），用來協助定位。
+- explanation 請用親切淺顯的「繁體中文」，清楚解釋文法規則、拼字重點或道地用法。
+- 只指出確定的錯誤，若合乎文法則尊重學生原本表述。
+- 若完全沒有錯誤，issues 回傳空陣列。
+- comment 請以溫和鼓勵的英文老師口吻，給予 80～150 字的整體評語，先肯定文章優點，再具體提出一到兩項精進建議。`;
+
 async function callGeminiApiDirect(apiKey, model, payload) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
   const res = await fetch(url, {
@@ -150,18 +201,25 @@ async function callGeminiApiDirect(apiKey, model, payload) {
   return data;
 }
 
-async function clientSideCheckEssay(text) {
+async function clientSideCheckEssay(text, requestedLang = 'auto') {
   let key = getSavedApiKey();
   if (!key) {
     key = await promptApiKey('📌 偵測到您使用 Netlify Drop 純靜態託管（無後端伺服器），請輸入一次您的 Google Gemini API Key 即可啟用批改：');
     if (!key) throw new Error('請先設定 Google Gemini API Key 以啟用批改功能。');
   }
 
-  const ruleIssues = findHalfWidthPunctuation(text);
-  const promptText = `請批改下列學生的作文：\n\n${text}`;
+  const lang = (!requestedLang || requestedLang === 'auto')
+    ? detectLanguage(text)
+    : (requestedLang === 'en' ? 'en' : 'zh');
+
+  const ruleIssues = lang === 'en' ? findEnglishPunctuationIssues(text) : findHalfWidthPunctuation(text);
+  const isEn = lang === 'en';
+  const promptText = isEn ? `請批改以下英文作文：\n\n${text}` : `請批改下列學生的作文：\n\n${text}`;
+  const systemInstruction = isEn ? EN_SYSTEM_INSTRUCTION : GEMINI_SYSTEM_INSTRUCTION;
+
   const payload = {
     contents: [{ parts: [{ text: promptText }] }],
-    systemInstruction: { parts: [{ text: GEMINI_SYSTEM_INSTRUCTION }] },
+    systemInstruction: { parts: [{ text: systemInstruction }] },
     generationConfig: {
       responseMimeType: 'application/json',
       responseSchema: {
@@ -224,6 +282,7 @@ async function clientSideCheckEssay(text) {
     unlocated,
     comment: parsed.comment ?? '',
     model: usedModel + ' (純靜態瀏覽器端)',
+    lang,
   };
 }
 
@@ -246,11 +305,11 @@ async function clientSideOcr(dataUrl, mimeType) {
       {
         parts: [
           {
-            text: `你是一位細心的國文老師，正在把學生手寫或影印的作文影像轉錄為文字。
-請仔細辨識圖片中的中文作文內容，輸出轉錄後的純文字。
-規則：
-1. 忠實轉錄：字體、標點符號、換行都要盡可能還原原本手稿，絕對不要擅自修改學生的錯別字或文句（保留原始錯誤以供後續批改）。
-2. 只輸出轉錄出的作文文字，不要加入任何問候語、前言、後記、Markdown 標記或解說。
+            text: `你是一位細心的作文辨識助手，專門轉錄學生手寫或印刷的國文或英文作文照片。
+請仔細辨識圖片中的作文內容。若為英文，請忠實保留英文大小寫、單字空格與標點；若為中文，請轉為臺灣正體中文輸出。
+重要規則：
+1. 忠實轉錄：字體、大小寫、單字空格、換行都要盡可能還原手稿，即使有錯別字或文法錯誤也絕對不要修改（保留以供批改）。
+2. 只輸出轉錄出的純文字，不要加入任何問候語、前言、後記、Markdown 標記或解說。
 3. 若有無法辨認的字，請以「□」代替。`,
           },
           {
@@ -294,8 +353,14 @@ async function clientSideOcr(dataUrl, mimeType) {
 // ---------- 輸入區 ----------
 const essay = $('#essay');
 const updateCount = () => {
-  const n = essay.value.replace(/\s/g, '').length;
-  $('#char-count').textContent = `${n} 字`;
+  const chars = essay.value.replace(/\s/g, '').length;
+  const words = (essay.value.match(/[A-Za-z0-9]+(?:'[A-Za-z0-9]+)?/g) || []).length;
+  const isEn = detectLanguage(essay.value) === 'en';
+  if (isEn && words > 0) {
+    $('#char-count').textContent = `${words} words (${chars} 字元)`;
+  } else {
+    $('#char-count').textContent = `${chars} 字` + (words > 5 ? ` (${words} words)` : '');
+  }
 };
 essay.addEventListener('input', updateCount);
 essay.value = localStorage.getItem('essay-draft') ?? '';
@@ -440,9 +505,35 @@ essay.addEventListener('paste', (e) => {
   }
 });
 
+// 語系選擇按鈕事件
+function updateLangSelectorUI() {
+  document.querySelectorAll('.lang-btn').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.lang === state.langMode);
+  });
+}
+document.querySelectorAll('.lang-btn').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    state.langMode = btn.dataset.lang;
+    localStorage.setItem('essay-lang-mode', state.langMode);
+    updateLangSelectorUI();
+  });
+});
+updateLangSelectorUI();
+
 $('#btn-sample').addEventListener('click', () => {
-  essay.value = SAMPLE;
+  let sampleToLoad = ZH_SAMPLE;
+  if (state.langMode === 'en') {
+    sampleToLoad = EN_SAMPLE;
+  } else if (state.langMode === 'zh') {
+    sampleToLoad = ZH_SAMPLE;
+  } else {
+    // 自動模式：若目前為中文作文，則切換載入英文；否則載入國文
+    const isZh = detectLanguage(essay.value) === 'zh' && essay.value.length > 20;
+    sampleToLoad = isZh ? EN_SAMPLE : ZH_SAMPLE;
+  }
+  essay.value = sampleToLoad;
   essay.dispatchEvent(new Event('input'));
+  toast(detectLanguage(sampleToLoad) === 'en' ? '已載入英文範例作文' : '已載入國語文範例作文');
 });
 $('#btn-clear').addEventListener('click', () => {
   essay.value = '';
@@ -483,17 +574,17 @@ async function check() {
       const res = await fetch('/api/check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, lang: state.langMode }),
       });
       if (res.status === 404 || res.status === 405) {
-        data = await clientSideCheckEssay(text);
+        data = await clientSideCheckEssay(text, state.langMode);
       } else {
         data = await res.json();
         if (!res.ok) throw new Error(data.error || '批改失敗');
       }
     } catch (fetchErr) {
       if (fetchErr.message && (fetchErr.message.includes('Failed to fetch') || fetchErr.message.includes('NetworkError') || fetchErr.message.includes('Load failed'))) {
-        data = await clientSideCheckEssay(text);
+        data = await clientSideCheckEssay(text, state.langMode);
       } else {
         throw fetchErr;
       }
@@ -501,14 +592,27 @@ async function check() {
     const sec = ((performance.now() - t0) / 1000).toFixed(1);
 
     state.text = data.text;
+    state.currentLang = data.lang || (state.langMode === 'auto' ? detectLanguage(data.text) : state.langMode);
     state.issues = data.issues.map((it) => ({ ...it, status: 'open' }));
     state.activeId = null;
     renderUnlocated(data.unlocated || []);
     $('#comment').textContent = data.comment || '';
 
+    // 動態更新分類標籤名稱
+    const isEn = state.currentLang === 'en';
+    const puncLabel = $('#label-filter-punc');
+    const typoLabel = $('#label-filter-typo');
+    const usageLabel = $('#label-filter-usage');
+    const printTitle = $('#print-title-text');
+    if (puncLabel) puncLabel.textContent = isEn ? '標點與空格' : '標點符號';
+    if (typoLabel) typoLabel.textContent = isEn ? '拼字大小寫' : '錯別字';
+    if (usageLabel) usageLabel.textContent = isEn ? '文法與用詞' : '用詞錯誤';
+    if (printTitle) printTitle.textContent = isEn ? '英文作文批改報告 (English Essay Assessment Report)' : '國語文作文批改報告';
+
     const badge = $('#model-badge');
     if (badge) {
-      badge.textContent = `${data.model || 'AI 批改'} · 耗時 ${sec} 秒`;
+      const langBadge = isEn ? '🇬🇧 英文批改' : '🇹🇼 國文批改';
+      badge.textContent = `${langBadge} · ${data.model || 'AI'} · 耗時 ${sec} 秒`;
       badge.hidden = false;
     }
 
@@ -574,11 +678,17 @@ function getFormattedDate() {
 // 線上列印
 $('#btn-print').addEventListener('click', () => {
   $('#print-date').textContent = getFormattedDate();
+  const isEn = state.currentLang === 'en';
   const pCount = state.issues.filter((i) => i.type === 'punctuation').length;
   const tCount = state.issues.filter((i) => i.type === 'typo').length;
   const uCount = state.issues.filter((i) => i.type === 'usage').length;
-  const wordCount = state.text.replace(/\s/g, '').length;
-  $('#print-stats').textContent = `文章字數：${wordCount} 字 ｜ 標點 ${pCount} 處、錯字 ${tCount} 處、用詞 ${uCount} 處`;
+  const chars = state.text.replace(/\s/g, '').length;
+  const words = (state.text.match(/[A-Za-z0-9]+(?:'[A-Za-z0-9]+)?/g) || []).length;
+  const lenStr = isEn ? `${words} words (${chars} 字元)` : `${chars} 字`;
+  const pLabel = isEn ? '標點與空格' : '標點';
+  const tLabel = isEn ? '拼字大小寫' : '錯字';
+  const uLabel = isEn ? '文法用詞' : '用詞';
+  $('#print-stats').textContent = `文章長度：${lenStr} ｜ ${pLabel} ${pCount} 處、${tLabel} ${tCount} 處、${uLabel} ${uCount} 處`;
   window.print();
 });
 
@@ -707,10 +817,17 @@ $('#btn-dl-word-report').addEventListener('click', () => {
   downloadDialog.close();
   const ts = getTimestamp();
   const dateStr = getFormattedDate();
-  const wordCount = state.text.replace(/\s/g, '').length;
+  const isEn = state.currentLang === 'en';
+  const reportTitle = isEn ? '英文作文批改報告' : '國文作文批改報告';
+  const chars = state.text.replace(/\s/g, '').length;
+  const words = (state.text.match(/[A-Za-z0-9]+(?:'[A-Za-z0-9]+)?/g) || []).length;
+  const lenStr = isEn ? `${words} words (${chars} 字元)` : `${chars} 字`;
   const pCount = state.issues.filter((i) => i.type === 'punctuation').length;
   const tCount = state.issues.filter((i) => i.type === 'typo').length;
   const uCount = state.issues.filter((i) => i.type === 'usage').length;
+  const pLabel = isEn ? '標點與空格' : '標點符號';
+  const tLabel = isEn ? '拼字大小寫' : '錯別字';
+  const uLabel = isEn ? '文法用詞' : '用詞錯誤';
 
   const correctedParagraphs = correctedText()
     .split('\n')
@@ -731,7 +848,7 @@ $('#btn-dl-word-report').addEventListener('click', () => {
     tableRows = `<tr><td colspan="6" style="text-align:center;color:#2e8b57;">太棒了！無明顯問題，表現優異。</td></tr>`;
   } else {
     state.issues.forEach((it, idx) => {
-      const typeLabel = TYPE_LABEL[it.type] || it.type;
+      const typeLabel = getTypeLabel(it.type, state.currentLang);
       const badgeClass = it.type === 'punctuation' ? 'badge-punct' : it.type === 'typo' ? 'badge-typo' : 'badge-usage';
       const statusStr = it.status === 'accepted' ? '<span class="status-accepted">✔ 已採用</span>' : it.status === 'ignored' ? '已忽略' : '未決定';
       tableRows += `<tr>
@@ -746,14 +863,14 @@ $('#btn-dl-word-report').addEventListener('click', () => {
   }
 
   const content = `
-    <h1>📝 國文作文批改報告</h1>
+    <h1>📝 ${escapeHtml(reportTitle)}</h1>
     <table class="meta-table">
       <tr>
         <td><b>批改時間：</b>${escapeHtml(dateStr)}</td>
-        <td style="text-align:right;"><b>文章字數：</b>${wordCount} 字</td>
+        <td style="text-align:right;"><b>文章長度：</b>${lenStr}</td>
       </tr>
       <tr>
-        <td colspan="2"><b>問題標示：</b>共 ${state.issues.length} 處（標點符號 ${pCount} 處、錯別字 ${tCount} 處、用詞錯誤 ${uCount} 處）</td>
+        <td colspan="2"><b>問題標示：</b>共 ${state.issues.length} 處（${pLabel} ${pCount} 處、${tLabel} ${tCount} 處、${uLabel} ${uCount} 處）</td>
       </tr>
     </table>
 
@@ -769,7 +886,7 @@ $('#btn-dl-word-report').addEventListener('click', () => {
           <th style="width:14%;">原文片段</th>
           <th style="width:14%;">建議修正</th>
           <th style="width:10%;text-align:center;white-space:nowrap;">狀態</th>
-          <th style="width:42%;">說明</th>
+          <th style="width:42%;">${isEn ? '說明與文法建議' : '說明'}</th>
         </tr>
       </thead>
       <tbody>
@@ -786,8 +903,8 @@ $('#btn-dl-word-report').addEventListener('click', () => {
     ${originalParagraphs}
   `;
 
-  const html = generateWordHtml('國文作文批改報告', content);
-  const filename = `作文批改報告_${ts}.doc`;
+  const html = generateWordHtml(reportTitle, content);
+  const filename = `${reportTitle}_${ts}.doc`;
   downloadFile(filename, html, 'application/msword;charset=utf-8');
   toast(`已下載 Word 批改報告：${filename}`);
 });
@@ -806,18 +923,25 @@ $('#btn-dl-report').addEventListener('click', () => {
   downloadDialog.close();
   const ts = getTimestamp();
   const dateStr = getFormattedDate();
-  const wordCount = state.text.replace(/\s/g, '').length;
+  const isEn = state.currentLang === 'en';
+  const reportTitle = isEn ? '英文作文批改報告' : '國文作文批改報告';
+  const chars = state.text.replace(/\s/g, '').length;
+  const words = (state.text.match(/[A-Za-z0-9]+(?:'[A-Za-z0-9]+)?/g) || []).length;
+  const lenStr = isEn ? `${words} words (${chars} 字元)` : `${chars} 字`;
   const pCount = state.issues.filter((i) => i.type === 'punctuation').length;
   const tCount = state.issues.filter((i) => i.type === 'typo').length;
   const uCount = state.issues.filter((i) => i.type === 'usage').length;
+  const pLabel = isEn ? '標點與空格' : '標點符號';
+  const tLabel = isEn ? '拼字大小寫' : '錯別字';
+  const uLabel = isEn ? '文法用詞' : '用詞錯誤';
 
   let report = '';
   report += '============================================================\r\n';
-  report += '               📝 國文作文批改報告\r\n';
+  report += `               📝 ${reportTitle}\r\n`;
   report += '============================================================\r\n';
   report += `批改時間：${dateStr}\r\n`;
-  report += `原文長度：${wordCount} 字\r\n`;
-  report += `問題標示：共 ${state.issues.length} 處（標點符號 ${pCount} 處、錯別字 ${tCount} 處、用詞錯誤 ${uCount} 處）\r\n`;
+  report += `文章長度：${lenStr}\r\n`;
+  report += `問題標示：共 ${state.issues.length} 處（${pLabel} ${pCount} 處、${tLabel} ${tCount} 處、${uLabel} ${uCount} 處）\r\n`;
   report += '============================================================\r\n\r\n';
 
   report += '【一、修正後作文全文】\r\n';
@@ -831,7 +955,7 @@ $('#btn-dl-report').addEventListener('click', () => {
     report += '無明顯問題，表現優異！\r\n';
   } else {
     state.issues.forEach((it, idx) => {
-      const typeStr = TYPE_LABEL[it.type] || it.type;
+      const typeStr = getTypeLabel(it.type, state.currentLang);
       const statusStr = it.status === 'accepted' ? '[已採用]' : it.status === 'ignored' ? '[已忽略]' : '[未決定]';
       report += `${idx + 1}. [${typeStr}] ${statusStr} 「${it.original}」 → 「${it.suggestion || '(刪除)'}」\r\n`;
       if (it.explanation) {
@@ -852,7 +976,7 @@ $('#btn-dl-report').addEventListener('click', () => {
   report += ($('#comment').textContent || '無特別評語。') + '\r\n';
   report += '============================================================\r\n';
 
-  const filename = `作文批改報告_${ts}.txt`;
+  const filename = `${reportTitle}_${ts}.txt`;
   downloadFile(filename, report);
   toast(`已下載：${filename}`);
 });
@@ -862,13 +986,23 @@ $('#btn-dl-md').addEventListener('click', () => {
   downloadDialog.close();
   const ts = getTimestamp();
   const dateStr = getFormattedDate();
-  const wordCount = state.text.replace(/\s/g, '').length;
+  const isEn = state.currentLang === 'en';
+  const reportTitle = isEn ? '英文作文批改報告' : '國文作文批改報告';
+  const chars = state.text.replace(/\s/g, '').length;
+  const words = (state.text.match(/[A-Za-z0-9]+(?:'[A-Za-z0-9]+)?/g) || []).length;
+  const lenStr = isEn ? `${words} words (${chars} 字元)` : `${chars} 字`;
+  const pCount = state.issues.filter((i) => i.type === 'punctuation').length;
+  const tCount = state.issues.filter((i) => i.type === 'typo').length;
+  const uCount = state.issues.filter((i) => i.type === 'usage').length;
+  const pLabel = isEn ? '標點與空格' : '標點';
+  const tLabel = isEn ? '拼字大小寫' : '錯字';
+  const uLabel = isEn ? '文法用詞' : '用詞';
 
   let md = '';
-  md += `# 📝 國文作文批改報告\n\n`;
+  md += `# 📝 ${reportTitle}\n\n`;
   md += `- **批改時間**：${dateStr}\n`;
-  md += `- **文章字數**：${wordCount} 字\n`;
-  md += `- **問題統計**：共 ${state.issues.length} 處（標點 ${state.issues.filter((i) => i.type === 'punctuation').length} 處、錯字 ${state.issues.filter((i) => i.type === 'typo').length} 處、用詞 ${state.issues.filter((i) => i.type === 'usage').length} 處）\n\n`;
+  md += `- **文章長度**：${lenStr}\n`;
+  md += `- **問題統計**：共 ${state.issues.length} 處（${pLabel} ${pCount} 處、${tLabel} ${tCount} 處、${uLabel} ${uCount} 處）\n\n`;
 
   md += `## 一、修正後作文\n\n`;
   md += `\`\`\`text\n${correctedText()}\n\`\`\`\n\n`;
@@ -877,7 +1011,7 @@ $('#btn-dl-md').addEventListener('click', () => {
   md += `| 編號 | 類別 | 原文 | 建議修正 | 狀態 | 說明 |\n`;
   md += `|---|---|---|---|---|---|\n`;
   state.issues.forEach((it, idx) => {
-    const typeStr = TYPE_LABEL[it.type] || it.type;
+    const typeStr = getTypeLabel(it.type, state.currentLang);
     const statusStr = it.status === 'accepted' ? '✔ 已採用' : it.status === 'ignored' ? '已忽略' : '未決定';
     md += `| ${idx + 1} | ${typeStr} | \`${it.original}\` | **\`${it.suggestion || '(刪除)'}\`** | ${statusStr} | ${it.explanation.replace(/\|/g, '、')} |\n`;
   });
@@ -889,7 +1023,7 @@ $('#btn-dl-md').addEventListener('click', () => {
   md += `## 四、學生原文\n\n`;
   md += `\`\`\`text\n${state.text}\n\`\`\`\n`;
 
-  const filename = `作文批改報告_${ts}.md`;
+  const filename = `${reportTitle}_${ts}.md`;
   downloadFile(filename, md, 'text/markdown;charset=utf-8');
   toast(`已下載：${filename}`);
 });
@@ -908,9 +1042,11 @@ function correctedText() {
 function render() {
   renderAnnotated();
   renderList();
-  for (const type of Object.keys(TYPE_LABEL)) {
-    document.querySelector(`[data-count="${type}"]`).textContent =
-      state.issues.filter((i) => i.type === type).length;
+  for (const type of ['punctuation', 'typo', 'usage']) {
+    const el = document.querySelector(`[data-count="${type}"]`);
+    if (el) {
+      el.textContent = state.issues.filter((i) => i.type === type).length;
+    }
   }
   const visible = state.issues.filter((i) => state.filters.has(i.type));
   $('#issue-total').textContent = `（共 ${visible.length} 處）`;
@@ -930,7 +1066,7 @@ function renderAnnotated() {
     if (!filtered && it.status !== 'ignored') {
       span.tabIndex = 0;
       span.setAttribute('role', 'button');
-      span.title = `${TYPE_LABEL[it.type]}：「${it.original}」→「${it.suggestion}」`;
+      span.title = `${getTypeLabel(it.type, state.currentLang)}：「${it.original}」→「${it.suggestion}」`;
       const sup = document.createElement('sup');
       sup.textContent = it.id;
       span.append(sup);
@@ -963,7 +1099,7 @@ function issueCard(it, actionable) {
   const head = document.createElement('div');
   head.className = 'issue-head';
   if (it.id) head.append(el('span', 'issue-no', `#${it.id}`));
-  head.append(el('span', `badge ${it.type}`, TYPE_LABEL[it.type] || it.type));
+  head.append(el('span', `badge ${it.type}`, getTypeLabel(it.type, state.currentLang)));
   if (it.status === 'accepted') head.append(el('span', 'status', '✔ 已採用'));
   if (it.status === 'ignored') head.append(el('span', 'status muted', '已忽略'));
 

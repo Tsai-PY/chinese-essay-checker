@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { GoogleGenAI } from '@google/genai';
 import { locateIssues } from './lib/locate.js';
 import { findHalfWidthPunctuation } from './lib/punctuation.js';
+import { detectLanguage, findEnglishPunctuationIssues } from './lib/englishRules.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -34,8 +35,8 @@ if (!process.env.GEMINI_API_KEY) {
 let ai;
 const getClient = () => (ai ??= new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }));
 
-// ---- 給模型的批改指示 ----
-const SYSTEM_INSTRUCTION = `你是一位經驗豐富、細心且溫和的臺灣國中、高中國文老師，正在批改學生的作文。
+// ---- 給模型的批改指示（國語文） ----
+const ZH_SYSTEM_INSTRUCTION = `你是一位經驗豐富、細心且溫和的臺灣國中、高中國文老師，正在批改學生的作文。
 請以教育部《重訂標點符號手冊》與《國語辭典》的臺灣正體中文用法為標準，找出作文中的下列問題：
 
 1. punctuation（標點符號）：
@@ -61,6 +62,44 @@ const SYSTEM_INSTRUCTION = `你是一位經驗豐富、細心且溫和的臺灣�
 - 若完全沒有錯誤，issues 回傳空陣列。
 - comment 給一段 80～150 字的整體評語，先肯定優點，再具體提出一到兩項可改進的方向。`;
 
+// ---- 給模型的批改指示（英文作文） ----
+const EN_SYSTEM_INSTRUCTION = `你是一位經驗豐富、專業細心且溫和鼓勵的英文老師，正在批改學生的英文作文（English Essay）。
+請針對學生的英文作文，找出以下三類問題並給予親切詳盡的繁體中文說明：
+
+1. punctuation（標點符號與空格）：
+   - 全形中文標點符號誤用（如誤輸入全形逗號「，」、句號「。」、問號「？」等，應改為半形英文標點並於後方加空格）。
+   - 標點後缺少空格（如 "apple,banana" 應改為 "apple, banana"、"good.He" 應改為 "good. He"）。
+   - 標點前多餘空格（如 "hello , world" 應改為 "hello, world"）。
+   - 連句錯誤（Run-on sentences / Comma splice，兩個獨立子句未加連接詞僅以逗號相連，應加上分號、連接詞或拆為兩句）。
+   - 句子結尾缺少句號、問號或驚嘆號。
+   - 縮寫撇號（Apostrophe）誤用或缺漏（如 dont -> don't, its 與 it's 混淆）。
+
+2. typo（拼字與大小寫錯誤）：
+   - 單字拼字錯誤（Spelling errors，例如 becuase -> because, tomorow -> tomorrow）。
+   - 句首字母未大寫、專有名詞未大寫、第一人稱代名詞「I」未大寫。
+   - 形似音近字混淆（如 weather/whether, their/there/they're, than/then, accept/except 等）。
+
+3. usage（文法、句型與用詞）：
+   - 主詞與動詞一致性（Subject-Verb Agreement，如 "He go to school" -> "He goes to school"）。
+   - 時態錯誤（Tense consistency / errors，如敘述過去事件卻混用現在式或過去分詞）。
+   - 冠詞誤用或遺漏（Articles: a, an, the 的用法）。
+   - 名詞單複數錯誤（Plural/Singular forms, 可數與不可數名詞）。
+   - 介系詞搭配錯誤（Prepositions，如 "depend of" -> "depend on"）。
+   - 動詞形式錯誤（動名詞 Gerund / 不定詞 Infinitive，如 "enjoy to swim" -> "enjoy swimming"）。
+   - 詞性混淆（Parts of speech，如形容詞當副詞用）。
+   - 中式英文（Chinglish）或不自然表達，提供地道、道地的英文搭配詞（Collocations）與片語。
+
+輸出規則（非常重要）：
+- 依問題在文中出現的先後順序列出。
+- original 必須「逐字」精確複製自學生原文（包含原本的大小寫、空格與標點），不可改寫，且至少一個字。
+- original 盡量精簡，只涵蓋需要修改的單字或片語（通常 1～4 個英文單字），不要複製整句。
+- suggestion 是用來直接取代 original 的修正文字（包含正確的英文大小寫與空格）。
+- context_before 為原文中緊接在 original 之前的 2～5 個單字或 8～15 個字元（逐字複製；若在文章開頭則為空字串），用來協助定位。
+- explanation 請用親切淺顯的「繁體中文」，清楚解釋文法規則、拼字重點或道地用法。
+- 只指出確定的錯誤，若合乎文法則尊重學生原本表述。
+- 若完全沒有錯誤，issues 回傳空陣列。
+- comment 請以溫和鼓勵的英文老師口吻，給予 80～150 字的整體評語，先肯定文章優點，再具體提出一到兩項精進建議。`;
+
 const RESPONSE_SCHEMA = {
   type: 'object',
   properties: {
@@ -72,7 +111,7 @@ const RESPONSE_SCHEMA = {
           type: { type: 'string', enum: ['punctuation', 'typo', 'usage'] },
           original: { type: 'string', description: '逐字複製自原文的錯誤片段' },
           suggestion: { type: 'string', description: '用來取代 original 的修正文字' },
-          context_before: { type: 'string', description: '原文中緊接在 original 前面的 4~6 個字' },
+          context_before: { type: 'string', description: '原文中緊接在 original 前面的文字' },
           explanation: { type: 'string', description: '給學生的簡短說明' },
         },
         required: ['type', 'original', 'suggestion', 'context_before', 'explanation'],
@@ -90,12 +129,18 @@ const isOverloaded = (err) => {
     /\b(503|429)\b|high demand|overloaded|RESOURCE_EXHAUSTED|UNAVAILABLE|timed out/i.test(msg);
 };
 
-async function callModel(model, text, { isLast }) {
+async function callModel(model, text, lang, { isLast }) {
+  const isEn = lang === 'en';
+  const systemInstruction = isEn ? EN_SYSTEM_INSTRUCTION : ZH_SYSTEM_INSTRUCTION;
+  const inputPrompt = isEn
+    ? `請批改以下英文作文：\n\n<essay>\n${text}\n</essay>`
+    : `請批改以下作文：\n\n<作文>\n${text}\n</作文>`;
+
   return getClient().interactions.create(
     {
       model,
-      system_instruction: SYSTEM_INSTRUCTION,
-      input: `請批改以下作文：\n\n<作文>\n${text}\n</作文>`,
+      system_instruction: systemInstruction,
+      input: inputPrompt,
       response_format: {
         type: 'text',
         mime_type: 'application/json',
@@ -108,14 +153,18 @@ async function callModel(model, text, { isLast }) {
   );
 }
 
-async function checkEssay(text) {
+async function checkEssay(text, requestedLang = 'auto') {
+  const lang = (!requestedLang || requestedLang === 'auto')
+    ? detectLanguage(text)
+    : (requestedLang === 'en' ? 'en' : 'zh');
+
   const models = [MODEL, ...FALLBACK_MODELS.filter((m) => m !== MODEL)];
   let interaction;
   let usedModel;
   let lastErr;
   for (const [idx, model] of models.entries()) {
     try {
-      interaction = await callModel(model, text, { isLast: idx === models.length - 1 });
+      interaction = await callModel(model, text, lang, { isLast: idx === models.length - 1 });
       usedModel = model;
       break;
     } catch (err) {
@@ -129,20 +178,21 @@ async function checkEssay(text) {
   }
 
   const data = JSON.parse(interaction.output_text ?? '{}');
+  const ruleIssues = lang === 'en' ? findEnglishPunctuationIssues(text) : findHalfWidthPunctuation(text);
   const { located, unlocated } = locateIssues(
     text,
     Array.isArray(data.issues) ? data.issues : [],
-    findHalfWidthPunctuation(text),
+    ruleIssues,
   );
-  return { text, issues: located, unlocated, comment: data.comment ?? '', model: usedModel };
+  return { text, issues: located, unlocated, comment: data.comment ?? '', model: usedModel, lang };
 }
 
 // ---- 給影像文字辨識（OCR）的指示 ----
-const OCR_SYSTEM_INSTRUCTION = `你是一位專業且細心的國語文辨識助手，專門轉錄臺灣學生手寫或印刷的國文作文照片。
-請仔細辨識圖片中的作文內容，並轉為臺灣正體中文輸出。
+const OCR_SYSTEM_INSTRUCTION = `你是一位專業且細心的作文辨識助手，專門轉錄學生手寫或印刷的國文或英文作文照片。
+請仔細辨識圖片中的作文內容。若為英文，請忠實保留英文大小寫、單字空格與標點；若為中文，請轉為臺灣正體中文輸出。
 
 重要規則：
-1. 忠實原文：請按原樣抄寫學生寫的文字與標點符號。即使學生寫了錯別字（例如「覺的」、「在見」）或用錯標點（例如半形符號或缺標點），也「絕對不要」替學生修正，因為後續系統還要進行作文批改！
+1. 忠實原文：請按原樣抄寫學生寫的文字、英文拼字與標點符號。即使學生寫了錯別字、拼錯單字（例如 becuase、season 漏 s）或用錯標點，也「絕對不要」替學生修正，因為後續系統還要進行作文批改！
 2. 排版結構：保留文章的原有分段、換行與空格。
 3. 塗改痕跡：若文章中有劃掉、塗黑或立可帶塗改的字，請忽略被劃掉的部分，只辨識學生最後定稿的字；若字跡模糊難辨，請根據筆畫形狀盡最大可能判斷，切勿隨意省略。
 4. 純淨輸出：直接輸出辨識出的作文文字本身，不要加任何引言、說明、提示或註解。`;
@@ -232,7 +282,8 @@ export async function handleRequest(req, res) {
       if (!process.env.GEMINI_API_KEY) {
         return sendJson(res, 500, { error: '伺服器尚未設定 GEMINI_API_KEY。' });
       }
-      const result = await checkEssay(text);
+      const lang = body.lang || 'auto';
+      const result = await checkEssay(text, lang);
       return sendJson(res, 200, result);
     } catch (err) {
       console.error(err);
